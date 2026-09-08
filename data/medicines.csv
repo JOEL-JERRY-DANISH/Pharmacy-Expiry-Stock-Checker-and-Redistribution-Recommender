@@ -1,0 +1,601 @@
+batch_id,medicine_name,category,branch_id,branch_name,quantity,expiry_date,unit_cost_gbp,demand_per_week,branch_capacity_remaining
+BATCH-10000,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,384,2026-09-18,0.18,13,4837
+BATCH-10001,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,292,2026-09-13,0.22,59,4827
+BATCH-10002,Metformin 500mg,Diabetes,BR02,North Branch,362,2026-11-25,0.12,15,379
+BATCH-10003,Metformin 500mg,Diabetes,BR04,South Branch,279,2026-09-11,0.12,48,1182
+BATCH-10004,Metformin 500mg,Diabetes,BR02,North Branch,400,2026-09-22,0.12,50,1138
+BATCH-10005,Ramipril 5mg,Heart,BR02,North Branch,194,2026-10-07,0.15,79,2600
+BATCH-10006,Omeprazole 20mg,Gastric,BR02,North Branch,241,2026-10-07,0.22,43,229
+BATCH-10007,Ramipril 5mg,Heart,BR04,South Branch,142,2026-09-12,0.15,65,810
+BATCH-10008,Salbutamol Inhaler,Respiratory,BR02,North Branch,131,2028-07-26,3.5,53,1482
+BATCH-10009,Amlodipine 5mg,Blood Pressure,BR04,South Branch,51,2027-05-19,0.09,56,1221
+BATCH-10010,Sertraline 50mg,Mental Health,BR04,South Branch,275,2026-09-15,0.14,70,1537
+BATCH-10011,Ramipril 5mg,Heart,BR01,Central Pharmacy,155,2026-11-09,0.15,66,871
+BATCH-10012,Warfarin 5mg,Anticoagulant,BR02,North Branch,83,2026-10-01,0.11,78,1327
+BATCH-10013,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,128,2027-02-15,0.22,70,1030
+BATCH-10014,Warfarin 5mg,Anticoagulant,BR02,North Branch,140,2026-12-06,0.11,27,2920
+BATCH-10015,Ramipril 5mg,Heart,BR04,South Branch,465,2026-10-12,0.15,4,1204
+BATCH-10016,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,41,2027-01-08,0.22,44,580
+BATCH-10017,Amoxicillin 500mg,Antibiotic,BR02,North Branch,281,2026-09-12,0.25,62,1667
+BATCH-10018,Ramipril 5mg,Heart,BR04,South Branch,215,2026-11-18,0.15,9,824
+BATCH-10019,Atorvastatin 20mg,Cholesterol,BR02,North Branch,103,2026-09-09,0.18,61,1023
+BATCH-10020,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,30,2027-08-06,0.11,23,3329
+BATCH-10021,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,89,2026-09-29,0.08,73,3986
+BATCH-10022,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,387,2026-09-30,0.14,22,465
+BATCH-10023,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,350,2028-07-21,0.14,78,325
+BATCH-10024,Salbutamol Inhaler,Respiratory,BR02,North Branch,347,2027-10-10,3.5,60,1295
+BATCH-10025,Atorvastatin 20mg,Cholesterol,BR02,North Branch,264,2026-09-17,0.18,49,1167
+BATCH-10026,Warfarin 5mg,Anticoagulant,BR03,East Branch,318,2028-06-26,0.11,40,424
+BATCH-10027,Atorvastatin 20mg,Cholesterol,BR02,North Branch,144,2026-09-25,0.18,66,2001
+BATCH-10028,Metformin 500mg,Diabetes,BR01,Central Pharmacy,329,2026-10-29,0.12,35,1323
+BATCH-10029,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,62,2026-09-13,0.08,49,4771
+BATCH-10030,Salbutamol Inhaler,Respiratory,BR03,East Branch,465,2027-08-19,3.5,15,1448
+BATCH-10031,Levothyroxine 50mcg,Thyroid,BR02,North Branch,478,2028-02-02,0.08,5,734
+BATCH-10032,Levothyroxine 50mcg,Thyroid,BR02,North Branch,141,2026-09-08,0.08,62,911
+BATCH-10033,Amoxicillin 500mg,Antibiotic,BR03,East Branch,161,2027-06-22,0.25,53,1344
+BATCH-10034,Salbutamol Inhaler,Respiratory,BR03,East Branch,333,2026-10-29,3.5,16,1069
+BATCH-10035,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,60,2026-11-04,3.5,67,947
+BATCH-10036,Omeprazole 20mg,Gastric,BR03,East Branch,27,2027-06-26,0.22,48,1766
+BATCH-10037,Ramipril 5mg,Heart,BR03,East Branch,344,2028-01-29,0.15,43,1648
+BATCH-10038,Omeprazole 20mg,Gastric,BR04,South Branch,345,2028-07-11,0.22,40,831
+BATCH-10039,Salbutamol Inhaler,Respiratory,BR03,East Branch,112,2026-10-28,3.5,58,1811
+BATCH-10040,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,150,2026-10-13,0.09,41,1840
+BATCH-10041,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,238,2026-11-22,0.25,65,3273
+BATCH-10042,Levothyroxine 50mcg,Thyroid,BR02,North Branch,95,2028-06-29,0.08,33,497
+BATCH-10043,Amoxicillin 500mg,Antibiotic,BR04,South Branch,430,2027-08-29,0.25,33,1720
+BATCH-10044,Warfarin 5mg,Anticoagulant,BR04,South Branch,325,2026-10-07,0.11,36,687
+BATCH-10045,Atorvastatin 20mg,Cholesterol,BR02,North Branch,82,2026-10-07,0.18,55,1669
+BATCH-10046,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,110,2026-12-27,0.08,75,3116
+BATCH-10047,Levothyroxine 50mcg,Thyroid,BR04,South Branch,280,2027-07-20,0.08,64,449
+BATCH-10048,Metformin 500mg,Diabetes,BR04,South Branch,177,2028-03-29,0.12,18,1274
+BATCH-10049,Atorvastatin 20mg,Cholesterol,BR04,South Branch,74,2027-11-07,0.18,29,931
+BATCH-10050,Levothyroxine 50mcg,Thyroid,BR03,East Branch,390,2026-12-26,0.08,71,213
+BATCH-10051,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,391,2026-08-30,0.18,32,1034
+BATCH-10052,Sertraline 50mg,Mental Health,BR02,North Branch,243,2028-08-19,0.14,16,670
+BATCH-10053,Sertraline 50mg,Mental Health,BR04,South Branch,208,2027-08-12,0.14,15,1427
+BATCH-10054,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,412,2028-02-18,0.14,49,564
+BATCH-10055,Metformin 500mg,Diabetes,BR04,South Branch,426,2026-12-04,0.12,21,891
+BATCH-10056,Salbutamol Inhaler,Respiratory,BR04,South Branch,243,2026-10-28,3.5,13,571
+BATCH-10057,Amoxicillin 500mg,Antibiotic,BR04,South Branch,177,2026-08-10,0.25,47,1633
+BATCH-10058,Sertraline 50mg,Mental Health,BR03,East Branch,289,2026-08-31,0.14,64,2274
+BATCH-10059,Amoxicillin 500mg,Antibiotic,BR04,South Branch,410,2026-08-28,0.25,41,1359
+BATCH-10060,Warfarin 5mg,Anticoagulant,BR03,East Branch,222,2028-03-15,0.11,36,1255
+BATCH-10061,Omeprazole 20mg,Gastric,BR03,East Branch,66,2027-07-16,0.22,63,1132
+BATCH-10062,Warfarin 5mg,Anticoagulant,BR03,East Branch,56,2027-10-12,0.11,3,2187
+BATCH-10063,Metformin 500mg,Diabetes,BR03,East Branch,362,2026-12-19,0.12,75,1164
+BATCH-10064,Ramipril 5mg,Heart,BR02,North Branch,499,2026-09-11,0.15,53,2014
+BATCH-10065,Metformin 500mg,Diabetes,BR02,North Branch,81,2028-06-30,0.12,55,2483
+BATCH-10066,Omeprazole 20mg,Gastric,BR04,South Branch,235,2027-10-15,0.22,74,1271
+BATCH-10067,Atorvastatin 20mg,Cholesterol,BR02,North Branch,325,2026-09-20,0.18,72,307
+BATCH-10068,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,123,2026-09-29,3.5,35,4831
+BATCH-10069,Omeprazole 20mg,Gastric,BR04,South Branch,63,2026-11-29,0.22,11,122
+BATCH-10070,Sertraline 50mg,Mental Health,BR03,East Branch,229,2026-09-10,0.14,66,2211
+BATCH-10071,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,460,2026-10-09,0.14,31,4712
+BATCH-10072,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,395,2027-09-17,3.5,25,4795
+BATCH-10073,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,245,2026-10-06,0.25,44,3372
+BATCH-10074,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,237,2026-09-10,0.08,67,9
+BATCH-10075,Amoxicillin 500mg,Antibiotic,BR04,South Branch,32,2026-09-12,0.25,8,416
+BATCH-10076,Salbutamol Inhaler,Respiratory,BR04,South Branch,455,2027-08-09,3.5,22,636
+BATCH-10077,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,241,2027-10-01,0.22,67,2239
+BATCH-10078,Amoxicillin 500mg,Antibiotic,BR02,North Branch,238,2026-11-09,0.25,10,1131
+BATCH-10079,Warfarin 5mg,Anticoagulant,BR03,East Branch,425,2026-08-14,0.11,21,1829
+BATCH-10080,Ramipril 5mg,Heart,BR04,South Branch,238,2028-07-14,0.15,51,478
+BATCH-10081,Levothyroxine 50mcg,Thyroid,BR02,North Branch,258,2027-03-19,0.08,58,408
+BATCH-10082,Metformin 500mg,Diabetes,BR02,North Branch,214,2027-09-04,0.12,45,2552
+BATCH-10083,Ramipril 5mg,Heart,BR04,South Branch,493,2026-09-30,0.15,6,1264
+BATCH-10084,Salbutamol Inhaler,Respiratory,BR02,North Branch,387,2026-09-14,3.5,58,681
+BATCH-10085,Metformin 500mg,Diabetes,BR03,East Branch,412,2026-09-10,0.12,69,1687
+BATCH-10086,Amlodipine 5mg,Blood Pressure,BR02,North Branch,94,2026-09-11,0.09,65,2388
+BATCH-10087,Salbutamol Inhaler,Respiratory,BR04,South Branch,135,2027-09-27,3.5,71,323
+BATCH-10088,Ramipril 5mg,Heart,BR03,East Branch,332,2027-10-12,0.15,27,1575
+BATCH-10089,Sertraline 50mg,Mental Health,BR03,East Branch,363,2026-09-27,0.14,74,200
+BATCH-10090,Salbutamol Inhaler,Respiratory,BR02,North Branch,315,2027-08-20,3.5,19,2573
+BATCH-10091,Metformin 500mg,Diabetes,BR03,East Branch,408,2026-10-13,0.12,43,1701
+BATCH-10092,Warfarin 5mg,Anticoagulant,BR03,East Branch,276,2026-10-24,0.11,39,1387
+BATCH-10093,Atorvastatin 20mg,Cholesterol,BR02,North Branch,391,2028-06-29,0.18,48,369
+BATCH-10094,Amoxicillin 500mg,Antibiotic,BR03,East Branch,349,2027-12-22,0.25,15,957
+BATCH-10095,Sertraline 50mg,Mental Health,BR02,North Branch,336,2026-09-11,0.14,16,572
+BATCH-10096,Salbutamol Inhaler,Respiratory,BR04,South Branch,64,2026-09-12,3.5,49,1373
+BATCH-10097,Amlodipine 5mg,Blood Pressure,BR04,South Branch,340,2026-09-12,0.09,49,444
+BATCH-10098,Omeprazole 20mg,Gastric,BR03,East Branch,55,2027-02-07,0.22,52,1130
+BATCH-10099,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,344,2026-09-15,0.25,33,1031
+BATCH-10100,Warfarin 5mg,Anticoagulant,BR02,North Branch,305,2026-09-25,0.11,78,11
+BATCH-10101,Amlodipine 5mg,Blood Pressure,BR02,North Branch,281,2026-10-06,0.09,18,60
+BATCH-10102,Omeprazole 20mg,Gastric,BR03,East Branch,13,2026-09-09,0.22,10,1950
+BATCH-10103,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,236,2026-11-10,0.11,60,255
+BATCH-10104,Levothyroxine 50mcg,Thyroid,BR04,South Branch,356,2026-09-11,0.08,43,1245
+BATCH-10105,Levothyroxine 50mcg,Thyroid,BR03,East Branch,237,2026-10-15,0.08,29,1761
+BATCH-10106,Levothyroxine 50mcg,Thyroid,BR03,East Branch,428,2026-10-28,0.08,42,1044
+BATCH-10107,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,51,2027-12-23,0.25,18,4557
+BATCH-10108,Warfarin 5mg,Anticoagulant,BR03,East Branch,348,2026-09-14,0.11,8,1178
+BATCH-10109,Atorvastatin 20mg,Cholesterol,BR02,North Branch,84,2028-06-28,0.18,49,470
+BATCH-10110,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,316,2027-06-09,0.08,36,2531
+BATCH-10111,Amlodipine 5mg,Blood Pressure,BR02,North Branch,294,2027-03-10,0.09,69,881
+BATCH-10112,Ramipril 5mg,Heart,BR02,North Branch,194,2026-10-03,0.15,8,637
+BATCH-10113,Metformin 500mg,Diabetes,BR01,Central Pharmacy,144,2026-11-05,0.12,36,1765
+BATCH-10114,Salbutamol Inhaler,Respiratory,BR04,South Branch,274,2027-02-01,3.5,2,418
+BATCH-10115,Amlodipine 5mg,Blood Pressure,BR03,East Branch,153,2026-09-28,0.09,50,2181
+BATCH-10116,Ramipril 5mg,Heart,BR01,Central Pharmacy,208,2027-02-24,0.15,42,4716
+BATCH-10117,Levothyroxine 50mcg,Thyroid,BR03,East Branch,63,2026-11-06,0.08,13,1788
+BATCH-10118,Sertraline 50mg,Mental Health,BR04,South Branch,273,2026-09-10,0.14,23,156
+BATCH-10119,Warfarin 5mg,Anticoagulant,BR02,North Branch,468,2027-05-07,0.11,32,421
+BATCH-10120,Amlodipine 5mg,Blood Pressure,BR02,North Branch,394,2028-03-26,0.09,74,2373
+BATCH-10121,Sertraline 50mg,Mental Health,BR03,East Branch,447,2028-03-31,0.14,58,1240
+BATCH-10122,Ramipril 5mg,Heart,BR01,Central Pharmacy,163,2026-11-30,0.15,11,739
+BATCH-10123,Levothyroxine 50mcg,Thyroid,BR04,South Branch,302,2026-11-05,0.08,26,658
+BATCH-10124,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,235,2026-09-14,0.09,66,1413
+BATCH-10125,Amoxicillin 500mg,Antibiotic,BR04,South Branch,273,2026-12-05,0.25,51,837
+BATCH-10126,Metformin 500mg,Diabetes,BR03,East Branch,38,2026-09-27,0.12,79,615
+BATCH-10127,Ramipril 5mg,Heart,BR03,East Branch,500,2027-03-03,0.15,41,2289
+BATCH-10128,Ramipril 5mg,Heart,BR02,North Branch,348,2028-02-13,0.15,67,1482
+BATCH-10129,Amlodipine 5mg,Blood Pressure,BR02,North Branch,179,2027-05-14,0.09,11,1211
+BATCH-10130,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,343,2026-09-19,0.11,21,1329
+BATCH-10131,Sertraline 50mg,Mental Health,BR02,North Branch,374,2026-11-23,0.14,58,2500
+BATCH-10132,Amoxicillin 500mg,Antibiotic,BR02,North Branch,278,2026-09-30,0.25,49,2778
+BATCH-10133,Amoxicillin 500mg,Antibiotic,BR03,East Branch,403,2026-09-20,0.25,79,566
+BATCH-10134,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,369,2027-05-20,0.11,36,3680
+BATCH-10135,Omeprazole 20mg,Gastric,BR04,South Branch,457,2026-09-16,0.22,49,482
+BATCH-10136,Ramipril 5mg,Heart,BR02,North Branch,19,2026-10-07,0.15,20,563
+BATCH-10137,Amoxicillin 500mg,Antibiotic,BR02,North Branch,393,2027-02-26,0.25,4,1048
+BATCH-10138,Warfarin 5mg,Anticoagulant,BR04,South Branch,61,2027-08-08,0.11,55,1308
+BATCH-10139,Atorvastatin 20mg,Cholesterol,BR04,South Branch,310,2026-10-23,0.18,39,879
+BATCH-10140,Omeprazole 20mg,Gastric,BR04,South Branch,100,2028-05-28,0.22,71,1039
+BATCH-10141,Levothyroxine 50mcg,Thyroid,BR04,South Branch,27,2026-10-30,0.08,46,493
+BATCH-10142,Sertraline 50mg,Mental Health,BR03,East Branch,73,2026-08-20,0.14,63,746
+BATCH-10143,Salbutamol Inhaler,Respiratory,BR02,North Branch,27,2027-10-20,3.5,67,1631
+BATCH-10144,Metformin 500mg,Diabetes,BR02,North Branch,151,2026-10-05,0.12,17,1507
+BATCH-10145,Amoxicillin 500mg,Antibiotic,BR04,South Branch,178,2028-05-21,0.25,36,1640
+BATCH-10146,Atorvastatin 20mg,Cholesterol,BR04,South Branch,313,2027-03-22,0.18,12,671
+BATCH-10147,Amoxicillin 500mg,Antibiotic,BR04,South Branch,90,2027-12-03,0.25,80,890
+BATCH-10148,Metformin 500mg,Diabetes,BR01,Central Pharmacy,348,2026-10-18,0.12,20,4977
+BATCH-10149,Ramipril 5mg,Heart,BR03,East Branch,201,2028-03-11,0.15,49,1523
+BATCH-10150,Sertraline 50mg,Mental Health,BR02,North Branch,276,2026-09-23,0.14,5,762
+BATCH-10151,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,139,2027-09-25,0.11,64,1639
+BATCH-10152,Amlodipine 5mg,Blood Pressure,BR04,South Branch,49,2027-02-11,0.09,72,1110
+BATCH-10153,Amlodipine 5mg,Blood Pressure,BR02,North Branch,411,2026-09-21,0.09,32,2023
+BATCH-10154,Sertraline 50mg,Mental Health,BR03,East Branch,244,2027-03-05,0.14,10,1266
+BATCH-10155,Amoxicillin 500mg,Antibiotic,BR04,South Branch,398,2026-10-28,0.25,59,954
+BATCH-10156,Warfarin 5mg,Anticoagulant,BR02,North Branch,398,2027-04-13,0.11,68,626
+BATCH-10157,Ramipril 5mg,Heart,BR03,East Branch,438,2026-09-13,0.15,40,2185
+BATCH-10158,Amlodipine 5mg,Blood Pressure,BR02,North Branch,92,2028-07-06,0.09,7,116
+BATCH-10159,Omeprazole 20mg,Gastric,BR04,South Branch,321,2026-10-26,0.22,63,501
+BATCH-10160,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,85,2026-10-29,0.18,20,2560
+BATCH-10161,Ramipril 5mg,Heart,BR04,South Branch,71,2027-08-11,0.15,61,250
+BATCH-10162,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,30,2026-10-04,0.09,22,2682
+BATCH-10163,Omeprazole 20mg,Gastric,BR02,North Branch,260,2026-12-30,0.22,13,1610
+BATCH-10164,Omeprazole 20mg,Gastric,BR02,North Branch,303,2026-09-30,0.22,38,2198
+BATCH-10165,Levothyroxine 50mcg,Thyroid,BR02,North Branch,456,2026-09-27,0.08,53,209
+BATCH-10166,Ramipril 5mg,Heart,BR03,East Branch,42,2026-10-02,0.15,80,486
+BATCH-10167,Levothyroxine 50mcg,Thyroid,BR03,East Branch,411,2028-08-14,0.08,67,1644
+BATCH-10168,Ramipril 5mg,Heart,BR04,South Branch,270,2026-10-28,0.15,42,332
+BATCH-10169,Salbutamol Inhaler,Respiratory,BR03,East Branch,264,2027-10-09,3.5,62,68
+BATCH-10170,Atorvastatin 20mg,Cholesterol,BR04,South Branch,303,2026-10-07,0.18,78,971
+BATCH-10171,Sertraline 50mg,Mental Health,BR02,North Branch,374,2026-09-09,0.14,50,605
+BATCH-10172,Metformin 500mg,Diabetes,BR04,South Branch,165,2026-11-03,0.12,80,1885
+BATCH-10173,Metformin 500mg,Diabetes,BR02,North Branch,270,2026-09-30,0.12,42,709
+BATCH-10174,Ramipril 5mg,Heart,BR03,East Branch,351,2027-09-03,0.15,80,1983
+BATCH-10175,Salbutamol Inhaler,Respiratory,BR03,East Branch,120,2027-07-07,3.5,64,1298
+BATCH-10176,Salbutamol Inhaler,Respiratory,BR03,East Branch,67,2026-11-29,3.5,20,1189
+BATCH-10177,Atorvastatin 20mg,Cholesterol,BR03,East Branch,478,2026-10-21,0.18,70,1110
+BATCH-10178,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,320,2028-06-02,0.09,30,1907
+BATCH-10179,Atorvastatin 20mg,Cholesterol,BR02,North Branch,7,2028-04-07,0.18,63,2664
+BATCH-10180,Salbutamol Inhaler,Respiratory,BR03,East Branch,151,2026-11-18,3.5,31,2191
+BATCH-10181,Amlodipine 5mg,Blood Pressure,BR04,South Branch,456,2028-04-27,0.09,25,1918
+BATCH-10182,Metformin 500mg,Diabetes,BR03,East Branch,295,2026-11-06,0.12,69,2023
+BATCH-10183,Amoxicillin 500mg,Antibiotic,BR03,East Branch,103,2027-08-27,0.25,25,57
+BATCH-10184,Sertraline 50mg,Mental Health,BR02,North Branch,94,2026-11-09,0.14,13,1641
+BATCH-10185,Ramipril 5mg,Heart,BR02,North Branch,8,2026-09-23,0.15,76,2960
+BATCH-10186,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,346,2026-09-09,0.22,41,961
+BATCH-10187,Salbutamol Inhaler,Respiratory,BR03,East Branch,319,2026-09-19,3.5,49,1703
+BATCH-10188,Warfarin 5mg,Anticoagulant,BR02,North Branch,395,2026-09-17,0.11,69,2882
+BATCH-10189,Metformin 500mg,Diabetes,BR02,North Branch,298,2026-11-05,0.12,28,2936
+BATCH-10190,Warfarin 5mg,Anticoagulant,BR04,South Branch,419,2026-09-12,0.11,9,1144
+BATCH-10191,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,207,2026-09-21,3.5,7,3470
+BATCH-10192,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,483,2028-01-29,0.11,25,1109
+BATCH-10193,Levothyroxine 50mcg,Thyroid,BR03,East Branch,461,2026-09-27,0.08,19,1424
+BATCH-10194,Warfarin 5mg,Anticoagulant,BR02,North Branch,377,2028-03-25,0.11,71,1737
+BATCH-10195,Omeprazole 20mg,Gastric,BR02,North Branch,240,2026-09-18,0.22,80,64
+BATCH-10196,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,233,2026-10-23,0.18,53,3595
+BATCH-10197,Metformin 500mg,Diabetes,BR02,North Branch,262,2028-07-20,0.12,78,2754
+BATCH-10198,Amlodipine 5mg,Blood Pressure,BR02,North Branch,216,2026-10-03,0.09,56,2276
+BATCH-10199,Warfarin 5mg,Anticoagulant,BR03,East Branch,361,2026-10-19,0.11,62,987
+BATCH-10200,Amlodipine 5mg,Blood Pressure,BR04,South Branch,473,2026-09-11,0.09,51,497
+BATCH-10201,Atorvastatin 20mg,Cholesterol,BR04,South Branch,438,2026-09-21,0.18,50,1379
+BATCH-10202,Atorvastatin 20mg,Cholesterol,BR02,North Branch,416,2028-04-10,0.18,28,1363
+BATCH-10203,Metformin 500mg,Diabetes,BR02,North Branch,484,2026-09-08,0.12,79,2882
+BATCH-10204,Omeprazole 20mg,Gastric,BR03,East Branch,402,2026-10-05,0.22,35,1473
+BATCH-10205,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,416,2027-07-03,0.25,49,2563
+BATCH-10206,Metformin 500mg,Diabetes,BR03,East Branch,288,2027-05-12,0.12,27,1351
+BATCH-10207,Omeprazole 20mg,Gastric,BR04,South Branch,286,2028-04-20,0.22,64,943
+BATCH-10208,Ramipril 5mg,Heart,BR02,North Branch,76,2027-02-05,0.15,69,138
+BATCH-10209,Metformin 500mg,Diabetes,BR01,Central Pharmacy,216,2026-09-09,0.12,3,1791
+BATCH-10210,Metformin 500mg,Diabetes,BR04,South Branch,342,2026-11-03,0.12,4,1084
+BATCH-10211,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,262,2027-03-15,3.5,69,1219
+BATCH-10212,Ramipril 5mg,Heart,BR03,East Branch,412,2026-09-29,0.15,30,1228
+BATCH-10213,Metformin 500mg,Diabetes,BR01,Central Pharmacy,212,2026-09-16,0.12,23,677
+BATCH-10214,Ramipril 5mg,Heart,BR01,Central Pharmacy,463,2026-12-04,0.15,62,2220
+BATCH-10215,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,96,2027-05-03,3.5,52,630
+BATCH-10216,Warfarin 5mg,Anticoagulant,BR03,East Branch,201,2027-02-25,0.11,66,1416
+BATCH-10217,Ramipril 5mg,Heart,BR04,South Branch,401,2026-09-29,0.15,47,1132
+BATCH-10218,Sertraline 50mg,Mental Health,BR04,South Branch,48,2027-02-20,0.14,12,548
+BATCH-10219,Amlodipine 5mg,Blood Pressure,BR04,South Branch,167,2026-09-24,0.09,36,209
+BATCH-10220,Warfarin 5mg,Anticoagulant,BR04,South Branch,57,2026-08-26,0.11,43,1768
+BATCH-10221,Atorvastatin 20mg,Cholesterol,BR02,North Branch,297,2026-10-16,0.18,40,1099
+BATCH-10222,Salbutamol Inhaler,Respiratory,BR04,South Branch,158,2026-10-23,3.5,78,1262
+BATCH-10223,Amlodipine 5mg,Blood Pressure,BR03,East Branch,8,2027-11-09,0.09,58,1371
+BATCH-10224,Sertraline 50mg,Mental Health,BR02,North Branch,158,2026-09-30,0.14,52,1307
+BATCH-10225,Amoxicillin 500mg,Antibiotic,BR02,North Branch,171,2026-09-27,0.25,74,818
+BATCH-10226,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,492,2027-10-01,0.09,10,3351
+BATCH-10227,Salbutamol Inhaler,Respiratory,BR02,North Branch,371,2026-11-15,3.5,76,1641
+BATCH-10228,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,409,2027-03-04,0.08,15,2033
+BATCH-10229,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,293,2027-11-11,0.09,57,867
+BATCH-10230,Amoxicillin 500mg,Antibiotic,BR03,East Branch,205,2026-11-09,0.25,46,100
+BATCH-10231,Atorvastatin 20mg,Cholesterol,BR02,North Branch,183,2026-09-21,0.18,46,1950
+BATCH-10232,Amoxicillin 500mg,Antibiotic,BR03,East Branch,39,2026-09-18,0.25,15,673
+BATCH-10233,Warfarin 5mg,Anticoagulant,BR02,North Branch,174,2026-11-17,0.11,25,2623
+BATCH-10234,Metformin 500mg,Diabetes,BR02,North Branch,235,2026-10-21,0.12,37,2882
+BATCH-10235,Warfarin 5mg,Anticoagulant,BR02,North Branch,192,2026-09-23,0.11,69,2617
+BATCH-10236,Sertraline 50mg,Mental Health,BR04,South Branch,305,2026-09-14,0.14,40,1881
+BATCH-10237,Amlodipine 5mg,Blood Pressure,BR03,East Branch,65,2026-09-26,0.09,67,1591
+BATCH-10238,Sertraline 50mg,Mental Health,BR04,South Branch,221,2026-09-12,0.14,73,341
+BATCH-10239,Amlodipine 5mg,Blood Pressure,BR03,East Branch,436,2026-10-08,0.09,19,799
+BATCH-10240,Warfarin 5mg,Anticoagulant,BR04,South Branch,214,2027-05-27,0.11,12,1157
+BATCH-10241,Omeprazole 20mg,Gastric,BR03,East Branch,21,2026-09-20,0.22,74,2028
+BATCH-10242,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,142,2027-01-18,0.14,58,4475
+BATCH-10243,Atorvastatin 20mg,Cholesterol,BR02,North Branch,157,2027-03-06,0.18,58,480
+BATCH-10244,Sertraline 50mg,Mental Health,BR03,East Branch,445,2027-04-28,0.14,28,847
+BATCH-10245,Warfarin 5mg,Anticoagulant,BR03,East Branch,310,2026-10-26,0.11,36,2107
+BATCH-10246,Salbutamol Inhaler,Respiratory,BR02,North Branch,364,2027-08-17,3.5,52,2004
+BATCH-10247,Salbutamol Inhaler,Respiratory,BR04,South Branch,197,2026-11-02,3.5,37,1422
+BATCH-10248,Amoxicillin 500mg,Antibiotic,BR03,East Branch,302,2026-08-13,0.25,47,259
+BATCH-10249,Levothyroxine 50mcg,Thyroid,BR02,North Branch,258,2026-09-25,0.08,18,2318
+BATCH-10250,Metformin 500mg,Diabetes,BR01,Central Pharmacy,55,2026-10-15,0.12,58,3739
+BATCH-10251,Levothyroxine 50mcg,Thyroid,BR02,North Branch,357,2027-09-13,0.08,13,2681
+BATCH-10252,Ramipril 5mg,Heart,BR02,North Branch,31,2026-10-07,0.15,56,2684
+BATCH-10253,Metformin 500mg,Diabetes,BR02,North Branch,249,2026-09-09,0.12,3,33
+BATCH-10254,Levothyroxine 50mcg,Thyroid,BR02,North Branch,249,2026-09-08,0.08,49,1225
+BATCH-10255,Amlodipine 5mg,Blood Pressure,BR02,North Branch,40,2026-10-18,0.09,46,2959
+BATCH-10256,Amlodipine 5mg,Blood Pressure,BR04,South Branch,320,2027-03-19,0.09,19,1541
+BATCH-10257,Levothyroxine 50mcg,Thyroid,BR03,East Branch,498,2026-10-25,0.08,33,2266
+BATCH-10258,Sertraline 50mg,Mental Health,BR03,East Branch,403,2027-10-11,0.14,28,2120
+BATCH-10259,Levothyroxine 50mcg,Thyroid,BR03,East Branch,335,2026-09-14,0.08,16,987
+BATCH-10260,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,189,2027-12-16,0.18,71,1415
+BATCH-10261,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,305,2026-09-09,0.18,52,4150
+BATCH-10262,Warfarin 5mg,Anticoagulant,BR04,South Branch,221,2028-08-28,0.11,21,568
+BATCH-10263,Warfarin 5mg,Anticoagulant,BR02,North Branch,418,2026-09-11,0.11,41,2861
+BATCH-10264,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,130,2026-09-08,0.22,9,2533
+BATCH-10265,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,11,2027-11-27,0.09,68,4237
+BATCH-10266,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,176,2028-07-19,0.18,11,4064
+BATCH-10267,Metformin 500mg,Diabetes,BR04,South Branch,444,2026-11-26,0.12,75,1380
+BATCH-10268,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,27,2027-12-14,0.11,51,1229
+BATCH-10269,Metformin 500mg,Diabetes,BR04,South Branch,119,2026-09-25,0.12,75,763
+BATCH-10270,Metformin 500mg,Diabetes,BR02,North Branch,119,2028-03-27,0.12,38,1272
+BATCH-10271,Ramipril 5mg,Heart,BR02,North Branch,154,2026-10-23,0.15,49,2423
+BATCH-10272,Omeprazole 20mg,Gastric,BR02,North Branch,82,2026-08-24,0.22,3,1372
+BATCH-10273,Levothyroxine 50mcg,Thyroid,BR03,East Branch,58,2026-09-30,0.08,37,381
+BATCH-10274,Warfarin 5mg,Anticoagulant,BR04,South Branch,363,2027-03-14,0.11,66,273
+BATCH-10275,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,227,2027-10-25,0.18,52,2672
+BATCH-10276,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,488,2026-10-03,0.22,15,1346
+BATCH-10277,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,279,2026-09-29,0.08,35,982
+BATCH-10278,Omeprazole 20mg,Gastric,BR03,East Branch,80,2026-09-10,0.22,40,1065
+BATCH-10279,Warfarin 5mg,Anticoagulant,BR02,North Branch,53,2026-10-15,0.11,9,910
+BATCH-10280,Atorvastatin 20mg,Cholesterol,BR03,East Branch,474,2028-03-05,0.18,18,376
+BATCH-10281,Amlodipine 5mg,Blood Pressure,BR04,South Branch,425,2028-02-16,0.09,24,724
+BATCH-10282,Salbutamol Inhaler,Respiratory,BR03,East Branch,233,2027-08-15,3.5,39,2043
+BATCH-10283,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,49,2026-09-21,0.25,33,4453
+BATCH-10284,Ramipril 5mg,Heart,BR04,South Branch,283,2028-01-08,0.15,36,368
+BATCH-10285,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,463,2027-12-08,0.22,76,1906
+BATCH-10286,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,396,2027-06-02,3.5,24,1937
+BATCH-10287,Ramipril 5mg,Heart,BR01,Central Pharmacy,365,2027-06-17,0.15,65,4441
+BATCH-10288,Metformin 500mg,Diabetes,BR02,North Branch,313,2026-09-15,0.12,27,534
+BATCH-10289,Ramipril 5mg,Heart,BR01,Central Pharmacy,16,2026-09-09,0.15,48,594
+BATCH-10290,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,177,2026-09-28,0.08,42,1427
+BATCH-10291,Sertraline 50mg,Mental Health,BR03,East Branch,119,2027-10-04,0.14,18,727
+BATCH-10292,Sertraline 50mg,Mental Health,BR04,South Branch,440,2027-10-28,0.14,80,452
+BATCH-10293,Amoxicillin 500mg,Antibiotic,BR02,North Branch,174,2027-03-07,0.25,44,1829
+BATCH-10294,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,184,2026-09-15,0.22,58,3437
+BATCH-10295,Amoxicillin 500mg,Antibiotic,BR04,South Branch,184,2026-11-27,0.25,30,333
+BATCH-10296,Metformin 500mg,Diabetes,BR03,East Branch,138,2027-12-26,0.12,22,307
+BATCH-10297,Atorvastatin 20mg,Cholesterol,BR03,East Branch,309,2028-02-21,0.18,23,2487
+BATCH-10298,Omeprazole 20mg,Gastric,BR02,North Branch,214,2027-09-21,0.22,40,972
+BATCH-10299,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,189,2026-09-04,0.09,63,1635
+BATCH-10300,Atorvastatin 20mg,Cholesterol,BR04,South Branch,437,2026-09-11,0.18,13,1314
+BATCH-10301,Ramipril 5mg,Heart,BR04,South Branch,194,2026-09-10,0.15,30,1714
+BATCH-10302,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,48,2028-08-01,0.09,31,4535
+BATCH-10303,Warfarin 5mg,Anticoagulant,BR04,South Branch,499,2026-12-03,0.11,62,612
+BATCH-10304,Metformin 500mg,Diabetes,BR02,North Branch,66,2027-06-22,0.12,18,174
+BATCH-10305,Amlodipine 5mg,Blood Pressure,BR03,East Branch,168,2028-01-08,0.09,73,1627
+BATCH-10306,Salbutamol Inhaler,Respiratory,BR04,South Branch,474,2028-05-25,3.5,55,230
+BATCH-10307,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,407,2026-09-28,0.18,64,4686
+BATCH-10308,Amlodipine 5mg,Blood Pressure,BR03,East Branch,211,2026-09-13,0.09,52,1357
+BATCH-10309,Ramipril 5mg,Heart,BR01,Central Pharmacy,177,2028-04-23,0.15,14,1867
+BATCH-10310,Amoxicillin 500mg,Antibiotic,BR03,East Branch,142,2028-03-03,0.25,29,1667
+BATCH-10311,Ramipril 5mg,Heart,BR01,Central Pharmacy,268,2028-01-24,0.15,19,4294
+BATCH-10312,Metformin 500mg,Diabetes,BR02,North Branch,21,2026-10-20,0.12,49,1901
+BATCH-10313,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,128,2026-09-20,0.18,77,4516
+BATCH-10314,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,150,2026-09-05,3.5,30,1844
+BATCH-10315,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,447,2027-04-21,0.08,24,4924
+BATCH-10316,Sertraline 50mg,Mental Health,BR03,East Branch,369,2027-12-27,0.14,46,1880
+BATCH-10317,Salbutamol Inhaler,Respiratory,BR04,South Branch,304,2026-09-13,3.5,79,578
+BATCH-10318,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,177,2027-10-08,0.25,26,1228
+BATCH-10319,Metformin 500mg,Diabetes,BR04,South Branch,343,2026-09-15,0.12,39,531
+BATCH-10320,Metformin 500mg,Diabetes,BR02,North Branch,180,2028-04-07,0.12,47,2077
+BATCH-10321,Warfarin 5mg,Anticoagulant,BR02,North Branch,155,2026-09-13,0.11,25,2784
+BATCH-10322,Omeprazole 20mg,Gastric,BR03,East Branch,119,2027-08-30,0.22,76,1204
+BATCH-10323,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,448,2026-11-07,0.25,66,981
+BATCH-10324,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,450,2028-07-12,0.08,60,1173
+BATCH-10325,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,254,2026-10-05,0.09,59,2240
+BATCH-10326,Amlodipine 5mg,Blood Pressure,BR02,North Branch,255,2028-02-24,0.09,56,1652
+BATCH-10327,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,24,2026-12-04,0.08,69,1561
+BATCH-10328,Omeprazole 20mg,Gastric,BR02,North Branch,360,2028-05-05,0.22,77,1253
+BATCH-10329,Salbutamol Inhaler,Respiratory,BR04,South Branch,377,2026-12-03,3.5,45,1846
+BATCH-10330,Omeprazole 20mg,Gastric,BR02,North Branch,490,2027-07-24,0.22,18,865
+BATCH-10331,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,192,2027-08-25,0.09,70,398
+BATCH-10332,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,29,2028-06-19,0.18,34,3886
+BATCH-10333,Metformin 500mg,Diabetes,BR03,East Branch,220,2028-08-18,0.12,19,1715
+BATCH-10334,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,149,2026-09-11,0.14,35,4285
+BATCH-10335,Levothyroxine 50mcg,Thyroid,BR03,East Branch,87,2026-08-22,0.08,44,960
+BATCH-10336,Sertraline 50mg,Mental Health,BR04,South Branch,81,2027-03-20,0.14,34,1319
+BATCH-10337,Salbutamol Inhaler,Respiratory,BR03,East Branch,242,2026-09-09,3.5,48,1280
+BATCH-10338,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,9,2027-12-08,0.18,58,2197
+BATCH-10339,Ramipril 5mg,Heart,BR02,North Branch,63,2026-11-21,0.15,55,2657
+BATCH-10340,Atorvastatin 20mg,Cholesterol,BR04,South Branch,471,2026-11-05,0.18,80,777
+BATCH-10341,Amlodipine 5mg,Blood Pressure,BR04,South Branch,476,2026-10-10,0.09,35,1341
+BATCH-10342,Ramipril 5mg,Heart,BR01,Central Pharmacy,226,2028-01-05,0.15,21,4573
+BATCH-10343,Warfarin 5mg,Anticoagulant,BR04,South Branch,441,2026-10-28,0.11,44,1986
+BATCH-10344,Levothyroxine 50mcg,Thyroid,BR02,North Branch,45,2026-10-13,0.08,59,1294
+BATCH-10345,Metformin 500mg,Diabetes,BR01,Central Pharmacy,211,2026-11-29,0.12,79,2495
+BATCH-10346,Amoxicillin 500mg,Antibiotic,BR03,East Branch,191,2028-07-02,0.25,78,1937
+BATCH-10347,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,54,2027-10-01,0.25,72,4276
+BATCH-10348,Metformin 500mg,Diabetes,BR02,North Branch,257,2026-09-13,0.12,80,802
+BATCH-10349,Amoxicillin 500mg,Antibiotic,BR02,North Branch,371,2026-09-16,0.25,17,1845
+BATCH-10350,Warfarin 5mg,Anticoagulant,BR02,North Branch,498,2026-11-12,0.11,76,1978
+BATCH-10351,Amlodipine 5mg,Blood Pressure,BR02,North Branch,379,2028-08-18,0.09,43,2064
+BATCH-10352,Sertraline 50mg,Mental Health,BR02,North Branch,145,2026-09-29,0.14,19,1690
+BATCH-10353,Warfarin 5mg,Anticoagulant,BR03,East Branch,436,2028-06-25,0.11,29,822
+BATCH-10354,Salbutamol Inhaler,Respiratory,BR03,East Branch,476,2028-06-14,3.5,43,472
+BATCH-10355,Sertraline 50mg,Mental Health,BR04,South Branch,350,2028-02-12,0.14,3,1070
+BATCH-10356,Metformin 500mg,Diabetes,BR02,North Branch,141,2027-05-05,0.12,9,2828
+BATCH-10357,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,188,2028-07-04,0.11,30,4597
+BATCH-10358,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,479,2026-10-06,3.5,8,106
+BATCH-10359,Amoxicillin 500mg,Antibiotic,BR02,North Branch,471,2026-11-25,0.25,71,2471
+BATCH-10360,Omeprazole 20mg,Gastric,BR03,East Branch,234,2026-09-08,0.22,17,1545
+BATCH-10361,Warfarin 5mg,Anticoagulant,BR03,East Branch,71,2026-09-10,0.11,21,163
+BATCH-10362,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,401,2028-04-22,0.14,75,4506
+BATCH-10363,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,407,2026-11-02,0.09,46,1812
+BATCH-10364,Ramipril 5mg,Heart,BR03,East Branch,155,2026-10-01,0.15,3,469
+BATCH-10365,Omeprazole 20mg,Gastric,BR02,North Branch,495,2026-08-09,0.22,51,1050
+BATCH-10366,Metformin 500mg,Diabetes,BR03,East Branch,268,2027-06-22,0.12,43,2104
+BATCH-10367,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,325,2026-09-13,0.09,15,1684
+BATCH-10368,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,387,2027-01-14,0.08,13,600
+BATCH-10369,Sertraline 50mg,Mental Health,BR02,North Branch,471,2026-10-05,0.14,42,69
+BATCH-10370,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,333,2027-02-19,0.11,47,4119
+BATCH-10371,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,149,2027-01-07,3.5,62,1280
+BATCH-10372,Levothyroxine 50mcg,Thyroid,BR03,East Branch,496,2026-10-31,0.08,72,2273
+BATCH-10373,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,161,2026-09-26,0.11,67,1166
+BATCH-10374,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,97,2028-06-21,0.22,61,4502
+BATCH-10375,Atorvastatin 20mg,Cholesterol,BR03,East Branch,55,2026-09-11,0.18,32,409
+BATCH-10376,Omeprazole 20mg,Gastric,BR03,East Branch,253,2026-11-21,0.22,21,2316
+BATCH-10377,Ramipril 5mg,Heart,BR04,South Branch,91,2026-08-30,0.15,37,1720
+BATCH-10378,Amoxicillin 500mg,Antibiotic,BR04,South Branch,188,2028-08-19,0.25,12,1723
+BATCH-10379,Amlodipine 5mg,Blood Pressure,BR02,North Branch,139,2026-12-26,0.09,66,2587
+BATCH-10380,Sertraline 50mg,Mental Health,BR04,South Branch,398,2026-10-24,0.14,71,966
+BATCH-10381,Ramipril 5mg,Heart,BR04,South Branch,119,2028-03-26,0.15,66,1045
+BATCH-10382,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,344,2026-10-06,0.11,19,3655
+BATCH-10383,Amoxicillin 500mg,Antibiotic,BR03,East Branch,25,2026-09-17,0.25,31,175
+BATCH-10384,Ramipril 5mg,Heart,BR04,South Branch,245,2027-11-03,0.15,15,1441
+BATCH-10385,Salbutamol Inhaler,Respiratory,BR03,East Branch,301,2026-11-01,3.5,77,318
+BATCH-10386,Omeprazole 20mg,Gastric,BR04,South Branch,185,2028-08-16,0.22,2,1027
+BATCH-10387,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,268,2026-10-18,0.22,79,969
+BATCH-10388,Ramipril 5mg,Heart,BR01,Central Pharmacy,251,2028-01-31,0.15,4,1996
+BATCH-10389,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,461,2026-12-06,0.09,68,3321
+BATCH-10390,Metformin 500mg,Diabetes,BR03,East Branch,489,2026-09-12,0.12,23,898
+BATCH-10391,Sertraline 50mg,Mental Health,BR02,North Branch,324,2028-03-15,0.14,78,2419
+BATCH-10392,Levothyroxine 50mcg,Thyroid,BR02,North Branch,60,2026-08-21,0.08,21,2480
+BATCH-10393,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,52,2026-11-29,0.11,57,4276
+BATCH-10394,Metformin 500mg,Diabetes,BR04,South Branch,122,2028-08-01,0.12,75,200
+BATCH-10395,Atorvastatin 20mg,Cholesterol,BR03,East Branch,311,2026-12-14,0.18,75,2140
+BATCH-10396,Levothyroxine 50mcg,Thyroid,BR02,North Branch,357,2028-02-16,0.08,76,1038
+BATCH-10397,Levothyroxine 50mcg,Thyroid,BR03,East Branch,318,2026-09-21,0.08,73,1976
+BATCH-10398,Warfarin 5mg,Anticoagulant,BR04,South Branch,134,2027-04-27,0.11,17,1531
+BATCH-10399,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,114,2026-11-16,0.09,22,3187
+BATCH-10400,Amoxicillin 500mg,Antibiotic,BR04,South Branch,50,2026-09-10,0.25,51,1906
+BATCH-10401,Warfarin 5mg,Anticoagulant,BR03,East Branch,369,2028-04-26,0.11,58,43
+BATCH-10402,Warfarin 5mg,Anticoagulant,BR03,East Branch,104,2026-08-18,0.11,80,694
+BATCH-10403,Metformin 500mg,Diabetes,BR02,North Branch,49,2028-01-15,0.12,53,2400
+BATCH-10404,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,286,2026-10-03,0.18,37,1853
+BATCH-10405,Amoxicillin 500mg,Antibiotic,BR04,South Branch,299,2026-09-01,0.25,11,1030
+BATCH-10406,Atorvastatin 20mg,Cholesterol,BR03,East Branch,453,2026-11-21,0.18,50,2306
+BATCH-10407,Ramipril 5mg,Heart,BR04,South Branch,353,2026-11-07,0.15,35,138
+BATCH-10408,Omeprazole 20mg,Gastric,BR02,North Branch,414,2026-10-02,0.22,33,1176
+BATCH-10409,Ramipril 5mg,Heart,BR01,Central Pharmacy,288,2028-07-16,0.15,36,1497
+BATCH-10410,Omeprazole 20mg,Gastric,BR02,North Branch,381,2026-09-22,0.22,47,638
+BATCH-10411,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,396,2028-09-02,0.14,42,4033
+BATCH-10412,Amoxicillin 500mg,Antibiotic,BR02,North Branch,396,2028-07-19,0.25,18,221
+BATCH-10413,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,262,2026-09-20,0.25,68,3768
+BATCH-10414,Metformin 500mg,Diabetes,BR02,North Branch,199,2026-12-02,0.12,25,2246
+BATCH-10415,Amoxicillin 500mg,Antibiotic,BR03,East Branch,192,2026-09-09,0.25,48,1640
+BATCH-10416,Sertraline 50mg,Mental Health,BR02,North Branch,299,2027-08-05,0.14,73,1770
+BATCH-10417,Metformin 500mg,Diabetes,BR02,North Branch,220,2026-11-10,0.12,42,1993
+BATCH-10418,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,208,2026-09-08,0.14,62,788
+BATCH-10419,Salbutamol Inhaler,Respiratory,BR03,East Branch,189,2026-10-30,3.5,54,496
+BATCH-10420,Sertraline 50mg,Mental Health,BR02,North Branch,300,2026-11-26,0.14,47,1331
+BATCH-10421,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,200,2026-12-02,0.25,45,3455
+BATCH-10422,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,45,2026-09-10,0.08,36,4959
+BATCH-10423,Amoxicillin 500mg,Antibiotic,BR03,East Branch,387,2026-10-19,0.25,18,961
+BATCH-10424,Atorvastatin 20mg,Cholesterol,BR02,North Branch,90,2026-09-30,0.18,5,1626
+BATCH-10425,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,139,2026-10-27,0.18,33,2327
+BATCH-10426,Amlodipine 5mg,Blood Pressure,BR02,North Branch,19,2026-08-26,0.09,61,2214
+BATCH-10427,Amlodipine 5mg,Blood Pressure,BR02,North Branch,307,2026-12-03,0.09,57,2144
+BATCH-10428,Salbutamol Inhaler,Respiratory,BR03,East Branch,251,2026-10-27,3.5,54,1064
+BATCH-10429,Metformin 500mg,Diabetes,BR02,North Branch,181,2026-10-07,0.12,63,1227
+BATCH-10430,Salbutamol Inhaler,Respiratory,BR02,North Branch,412,2026-08-26,3.5,57,1616
+BATCH-10431,Levothyroxine 50mcg,Thyroid,BR02,North Branch,139,2026-09-09,0.08,36,1166
+BATCH-10432,Salbutamol Inhaler,Respiratory,BR04,South Branch,101,2028-03-17,3.5,59,557
+BATCH-10433,Ramipril 5mg,Heart,BR01,Central Pharmacy,82,2026-08-20,0.15,36,1024
+BATCH-10434,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,82,2026-08-31,0.22,49,3798
+BATCH-10435,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,141,2027-06-21,0.09,34,3125
+BATCH-10436,Amoxicillin 500mg,Antibiotic,BR02,North Branch,382,2027-07-08,0.25,62,1593
+BATCH-10437,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,386,2027-10-08,0.09,27,2952
+BATCH-10438,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,125,2026-11-27,0.22,76,980
+BATCH-10439,Metformin 500mg,Diabetes,BR01,Central Pharmacy,302,2027-12-22,0.12,13,2037
+BATCH-10440,Sertraline 50mg,Mental Health,BR03,East Branch,481,2027-12-06,0.14,21,2196
+BATCH-10441,Warfarin 5mg,Anticoagulant,BR03,East Branch,417,2027-12-28,0.11,47,551
+BATCH-10442,Amoxicillin 500mg,Antibiotic,BR04,South Branch,291,2026-09-21,0.25,71,712
+BATCH-10443,Salbutamol Inhaler,Respiratory,BR02,North Branch,40,2026-11-11,3.5,60,2
+BATCH-10444,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,322,2027-02-09,0.09,70,3174
+BATCH-10445,Amoxicillin 500mg,Antibiotic,BR02,North Branch,318,2026-09-25,0.25,68,2698
+BATCH-10446,Metformin 500mg,Diabetes,BR02,North Branch,59,2026-11-18,0.12,64,2153
+BATCH-10447,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,192,2026-09-15,3.5,64,655
+BATCH-10448,Metformin 500mg,Diabetes,BR03,East Branch,290,2027-02-04,0.12,80,1088
+BATCH-10449,Atorvastatin 20mg,Cholesterol,BR02,North Branch,496,2026-11-11,0.18,26,791
+BATCH-10450,Sertraline 50mg,Mental Health,BR02,North Branch,290,2028-07-19,0.14,47,2762
+BATCH-10451,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,90,2027-05-17,0.08,70,4914
+BATCH-10452,Ramipril 5mg,Heart,BR03,East Branch,437,2026-09-28,0.15,79,985
+BATCH-10453,Levothyroxine 50mcg,Thyroid,BR03,East Branch,189,2027-01-11,0.08,38,2440
+BATCH-10454,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,158,2027-09-15,3.5,72,4188
+BATCH-10455,Sertraline 50mg,Mental Health,BR02,North Branch,53,2026-08-26,0.14,76,1023
+BATCH-10456,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,297,2026-09-17,3.5,63,1416
+BATCH-10457,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,309,2026-11-01,0.14,9,2739
+BATCH-10458,Levothyroxine 50mcg,Thyroid,BR04,South Branch,481,2028-08-14,0.08,3,1298
+BATCH-10459,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,168,2026-11-21,3.5,21,413
+BATCH-10460,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,118,2026-10-16,0.14,12,3898
+BATCH-10461,Warfarin 5mg,Anticoagulant,BR04,South Branch,139,2026-09-11,0.11,63,1145
+BATCH-10462,Sertraline 50mg,Mental Health,BR02,North Branch,292,2026-10-23,0.14,36,1761
+BATCH-10463,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,62,2027-10-31,0.14,46,4865
+BATCH-10464,Ramipril 5mg,Heart,BR04,South Branch,324,2026-09-14,0.15,21,1551
+BATCH-10465,Sertraline 50mg,Mental Health,BR02,North Branch,449,2027-03-30,0.14,41,1843
+BATCH-10466,Omeprazole 20mg,Gastric,BR03,East Branch,285,2026-11-21,0.22,50,2387
+BATCH-10467,Salbutamol Inhaler,Respiratory,BR02,North Branch,35,2026-10-04,3.5,61,2681
+BATCH-10468,Ramipril 5mg,Heart,BR01,Central Pharmacy,14,2026-09-27,0.15,67,815
+BATCH-10469,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,100,2026-09-12,0.14,33,4336
+BATCH-10470,Levothyroxine 50mcg,Thyroid,BR02,North Branch,14,2026-10-05,0.08,66,1129
+BATCH-10471,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,488,2026-10-29,0.08,19,719
+BATCH-10472,Sertraline 50mg,Mental Health,BR02,North Branch,218,2026-09-24,0.14,44,1839
+BATCH-10473,Sertraline 50mg,Mental Health,BR02,North Branch,446,2026-09-13,0.14,57,594
+BATCH-10474,Amlodipine 5mg,Blood Pressure,BR03,East Branch,39,2026-10-28,0.09,5,1305
+BATCH-10475,Salbutamol Inhaler,Respiratory,BR04,South Branch,386,2027-06-17,3.5,15,269
+BATCH-10476,Sertraline 50mg,Mental Health,BR02,North Branch,310,2026-09-26,0.14,19,2057
+BATCH-10477,Ramipril 5mg,Heart,BR02,North Branch,441,2026-09-20,0.15,6,1673
+BATCH-10478,Levothyroxine 50mcg,Thyroid,BR02,North Branch,385,2027-06-06,0.08,58,2527
+BATCH-10479,Amoxicillin 500mg,Antibiotic,BR02,North Branch,223,2026-11-23,0.25,52,2504
+BATCH-10480,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,271,2026-09-14,0.11,68,4406
+BATCH-10481,Metformin 500mg,Diabetes,BR04,South Branch,269,2028-01-18,0.12,40,1584
+BATCH-10482,Levothyroxine 50mcg,Thyroid,BR03,East Branch,318,2028-03-13,0.08,13,2050
+BATCH-10483,Levothyroxine 50mcg,Thyroid,BR04,South Branch,170,2026-12-04,0.08,60,184
+BATCH-10484,Amlodipine 5mg,Blood Pressure,BR01,Central Pharmacy,51,2026-09-13,0.09,51,4191
+BATCH-10485,Levothyroxine 50mcg,Thyroid,BR04,South Branch,27,2027-05-09,0.08,22,1779
+BATCH-10486,Salbutamol Inhaler,Respiratory,BR03,East Branch,378,2027-04-06,3.5,18,830
+BATCH-10487,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,239,2026-11-15,3.5,32,1776
+BATCH-10488,Amoxicillin 500mg,Antibiotic,BR04,South Branch,231,2026-09-08,0.25,37,1269
+BATCH-10489,Omeprazole 20mg,Gastric,BR01,Central Pharmacy,99,2026-09-10,0.22,75,4942
+BATCH-10490,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,60,2026-10-26,0.18,78,4688
+BATCH-10491,Metformin 500mg,Diabetes,BR01,Central Pharmacy,398,2026-09-17,0.12,72,531
+BATCH-10492,Atorvastatin 20mg,Cholesterol,BR03,East Branch,173,2026-10-21,0.18,9,447
+BATCH-10493,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,252,2028-02-17,0.11,79,2592
+BATCH-10494,Sertraline 50mg,Mental Health,BR03,East Branch,479,2026-09-11,0.14,65,736
+BATCH-10495,Salbutamol Inhaler,Respiratory,BR02,North Branch,5,2026-09-13,3.5,80,1698
+BATCH-10496,Metformin 500mg,Diabetes,BR02,North Branch,358,2026-09-24,0.12,72,1326
+BATCH-10497,Levothyroxine 50mcg,Thyroid,BR01,Central Pharmacy,431,2026-09-14,0.08,62,291
+BATCH-10498,Warfarin 5mg,Anticoagulant,BR03,East Branch,241,2028-05-23,0.11,40,2314
+BATCH-10499,Metformin 500mg,Diabetes,BR02,North Branch,300,2027-05-08,0.12,37,127
+BATCH-10500,Warfarin 5mg,Anticoagulant,BR02,North Branch,297,2026-12-02,0.11,42,2907
+BATCH-10501,Atorvastatin 20mg,Cholesterol,BR04,South Branch,454,2026-09-24,0.18,40,358
+BATCH-10502,Metformin 500mg,Diabetes,BR02,North Branch,472,2026-09-08,0.12,21,779
+BATCH-10503,Warfarin 5mg,Anticoagulant,BR03,East Branch,402,2026-09-18,0.11,18,840
+BATCH-10504,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,7,2026-10-04,0.11,44,3824
+BATCH-10505,Metformin 500mg,Diabetes,BR03,East Branch,332,2027-09-16,0.12,70,1307
+BATCH-10506,Salbutamol Inhaler,Respiratory,BR02,North Branch,85,2026-10-02,3.5,28,2222
+BATCH-10507,Salbutamol Inhaler,Respiratory,BR02,North Branch,487,2027-02-17,3.5,41,2511
+BATCH-10508,Metformin 500mg,Diabetes,BR02,North Branch,19,2026-11-01,0.12,13,1746
+BATCH-10509,Sertraline 50mg,Mental Health,BR03,East Branch,164,2026-10-06,0.14,12,1907
+BATCH-10510,Amoxicillin 500mg,Antibiotic,BR03,East Branch,355,2026-10-22,0.25,20,1056
+BATCH-10511,Ramipril 5mg,Heart,BR03,East Branch,237,2026-10-30,0.15,61,699
+BATCH-10512,Sertraline 50mg,Mental Health,BR02,North Branch,265,2026-09-13,0.14,11,1237
+BATCH-10513,Sertraline 50mg,Mental Health,BR04,South Branch,127,2026-11-01,0.14,45,426
+BATCH-10514,Levothyroxine 50mcg,Thyroid,BR03,East Branch,283,2028-07-16,0.08,64,468
+BATCH-10515,Ramipril 5mg,Heart,BR01,Central Pharmacy,425,2026-11-15,0.15,78,3104
+BATCH-10516,Metformin 500mg,Diabetes,BR01,Central Pharmacy,116,2026-12-07,0.12,20,1222
+BATCH-10517,Levothyroxine 50mcg,Thyroid,BR04,South Branch,105,2026-09-24,0.08,57,1470
+BATCH-10518,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,318,2027-10-04,0.14,9,3024
+BATCH-10519,Metformin 500mg,Diabetes,BR03,East Branch,61,2028-08-02,0.12,52,1303
+BATCH-10520,Levothyroxine 50mcg,Thyroid,BR02,North Branch,344,2026-09-09,0.08,55,631
+BATCH-10521,Amlodipine 5mg,Blood Pressure,BR02,North Branch,10,2026-09-09,0.09,19,346
+BATCH-10522,Levothyroxine 50mcg,Thyroid,BR04,South Branch,462,2028-03-16,0.08,67,868
+BATCH-10523,Levothyroxine 50mcg,Thyroid,BR03,East Branch,120,2026-09-08,0.08,66,1102
+BATCH-10524,Sertraline 50mg,Mental Health,BR03,East Branch,22,2027-04-01,0.14,76,1972
+BATCH-10525,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,272,2027-02-24,0.25,71,4748
+BATCH-10526,Ramipril 5mg,Heart,BR01,Central Pharmacy,245,2026-11-23,0.15,55,2891
+BATCH-10527,Metformin 500mg,Diabetes,BR03,East Branch,377,2028-07-21,0.12,23,2346
+BATCH-10528,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,151,2026-12-01,3.5,34,1085
+BATCH-10529,Salbutamol Inhaler,Respiratory,BR01,Central Pharmacy,384,2026-09-12,3.5,49,1436
+BATCH-10530,Omeprazole 20mg,Gastric,BR04,South Branch,97,2027-05-04,0.22,78,1912
+BATCH-10531,Levothyroxine 50mcg,Thyroid,BR04,South Branch,126,2028-07-20,0.08,46,111
+BATCH-10532,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,90,2026-11-24,0.18,31,3111
+BATCH-10533,Amlodipine 5mg,Blood Pressure,BR04,South Branch,11,2026-09-27,0.09,69,1398
+BATCH-10534,Levothyroxine 50mcg,Thyroid,BR03,East Branch,176,2026-09-23,0.08,52,1888
+BATCH-10535,Sertraline 50mg,Mental Health,BR02,North Branch,271,2026-09-25,0.14,3,278
+BATCH-10536,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,355,2026-10-24,0.11,6,194
+BATCH-10537,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,367,2027-12-26,0.14,74,1513
+BATCH-10538,Salbutamol Inhaler,Respiratory,BR03,East Branch,244,2027-09-16,3.5,56,1324
+BATCH-10539,Metformin 500mg,Diabetes,BR04,South Branch,203,2026-09-23,0.12,10,1007
+BATCH-10540,Amlodipine 5mg,Blood Pressure,BR04,South Branch,60,2026-09-11,0.09,58,1465
+BATCH-10541,Sertraline 50mg,Mental Health,BR03,East Branch,402,2026-11-18,0.14,6,1599
+BATCH-10542,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,268,2028-01-24,0.14,10,4424
+BATCH-10543,Sertraline 50mg,Mental Health,BR03,East Branch,175,2027-03-09,0.14,48,2189
+BATCH-10544,Omeprazole 20mg,Gastric,BR02,North Branch,288,2026-08-25,0.22,15,2583
+BATCH-10545,Amoxicillin 500mg,Antibiotic,BR02,North Branch,76,2026-09-06,0.25,51,258
+BATCH-10546,Amoxicillin 500mg,Antibiotic,BR04,South Branch,499,2027-01-19,0.25,53,242
+BATCH-10547,Warfarin 5mg,Anticoagulant,BR04,South Branch,486,2028-07-22,0.11,31,1894
+BATCH-10548,Metformin 500mg,Diabetes,BR04,South Branch,469,2027-04-19,0.12,3,352
+BATCH-10549,Amoxicillin 500mg,Antibiotic,BR02,North Branch,432,2026-10-15,0.25,78,2521
+BATCH-10550,Ramipril 5mg,Heart,BR04,South Branch,171,2026-09-12,0.15,29,1565
+BATCH-10551,Ramipril 5mg,Heart,BR01,Central Pharmacy,66,2026-09-20,0.15,72,1351
+BATCH-10552,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,73,2026-09-13,0.14,4,3989
+BATCH-10553,Sertraline 50mg,Mental Health,BR03,East Branch,218,2027-04-15,0.14,28,586
+BATCH-10554,Amoxicillin 500mg,Antibiotic,BR04,South Branch,127,2027-06-09,0.25,65,1253
+BATCH-10555,Salbutamol Inhaler,Respiratory,BR03,East Branch,219,2026-08-30,3.5,48,2210
+BATCH-10556,Omeprazole 20mg,Gastric,BR03,East Branch,32,2026-09-09,0.22,65,722
+BATCH-10557,Metformin 500mg,Diabetes,BR01,Central Pharmacy,335,2026-09-23,0.12,60,354
+BATCH-10558,Warfarin 5mg,Anticoagulant,BR02,North Branch,85,2027-08-04,0.11,58,2427
+BATCH-10559,Omeprazole 20mg,Gastric,BR03,East Branch,122,2028-02-02,0.22,27,1538
+BATCH-10560,Metformin 500mg,Diabetes,BR04,South Branch,79,2026-09-20,0.12,19,937
+BATCH-10561,Salbutamol Inhaler,Respiratory,BR02,North Branch,176,2026-09-12,3.5,16,1906
+BATCH-10562,Ramipril 5mg,Heart,BR02,North Branch,458,2026-10-05,0.15,75,2264
+BATCH-10563,Omeprazole 20mg,Gastric,BR04,South Branch,433,2026-11-24,0.22,33,670
+BATCH-10564,Sertraline 50mg,Mental Health,BR02,North Branch,472,2026-10-10,0.14,66,137
+BATCH-10565,Amoxicillin 500mg,Antibiotic,BR01,Central Pharmacy,236,2026-11-21,0.25,29,1087
+BATCH-10566,Atorvastatin 20mg,Cholesterol,BR01,Central Pharmacy,250,2028-07-13,0.18,76,199
+BATCH-10567,Amlodipine 5mg,Blood Pressure,BR04,South Branch,99,2026-12-08,0.09,11,788
+BATCH-10568,Salbutamol Inhaler,Respiratory,BR04,South Branch,390,2026-10-03,3.5,12,1270
+BATCH-10569,Metformin 500mg,Diabetes,BR03,East Branch,459,2026-09-10,0.12,48,1500
+BATCH-10570,Atorvastatin 20mg,Cholesterol,BR02,North Branch,75,2028-04-09,0.18,76,2878
+BATCH-10571,Omeprazole 20mg,Gastric,BR03,East Branch,185,2027-01-31,0.22,10,1527
+BATCH-10572,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,245,2027-10-02,0.11,59,3015
+BATCH-10573,Atorvastatin 20mg,Cholesterol,BR04,South Branch,464,2026-09-08,0.18,20,1016
+BATCH-10574,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,155,2026-11-07,0.11,55,3636
+BATCH-10575,Metformin 500mg,Diabetes,BR02,North Branch,432,2027-11-23,0.12,43,1991
+BATCH-10576,Warfarin 5mg,Anticoagulant,BR04,South Branch,239,2026-09-24,0.11,31,991
+BATCH-10577,Metformin 500mg,Diabetes,BR02,North Branch,185,2026-09-20,0.12,38,746
+BATCH-10578,Amlodipine 5mg,Blood Pressure,BR02,North Branch,126,2026-09-12,0.09,49,755
+BATCH-10579,Metformin 500mg,Diabetes,BR03,East Branch,181,2026-09-12,0.12,17,102
+BATCH-10580,Amlodipine 5mg,Blood Pressure,BR04,South Branch,480,2026-10-02,0.09,39,970
+BATCH-10581,Sertraline 50mg,Mental Health,BR02,North Branch,414,2026-11-21,0.14,63,164
+BATCH-10582,Atorvastatin 20mg,Cholesterol,BR03,East Branch,17,2026-10-30,0.18,43,225
+BATCH-10583,Sertraline 50mg,Mental Health,BR02,North Branch,405,2028-06-10,0.14,59,2773
+BATCH-10584,Levothyroxine 50mcg,Thyroid,BR02,North Branch,256,2026-09-16,0.08,52,605
+BATCH-10585,Ramipril 5mg,Heart,BR01,Central Pharmacy,150,2026-10-02,0.15,58,3404
+BATCH-10586,Levothyroxine 50mcg,Thyroid,BR04,South Branch,76,2027-10-13,0.08,62,1776
+BATCH-10587,Atorvastatin 20mg,Cholesterol,BR04,South Branch,50,2026-08-17,0.18,61,1454
+BATCH-10588,Amlodipine 5mg,Blood Pressure,BR02,North Branch,100,2027-10-12,0.09,76,1244
+BATCH-10589,Amoxicillin 500mg,Antibiotic,BR02,North Branch,18,2028-04-03,0.25,17,2678
+BATCH-10590,Levothyroxine 50mcg,Thyroid,BR02,North Branch,256,2027-09-16,0.08,65,273
+BATCH-10591,Sertraline 50mg,Mental Health,BR04,South Branch,294,2026-11-07,0.14,49,1049
+BATCH-10592,Sertraline 50mg,Mental Health,BR01,Central Pharmacy,79,2026-09-19,0.14,8,2233
+BATCH-10593,Ramipril 5mg,Heart,BR01,Central Pharmacy,153,2026-10-01,0.15,14,4905
+BATCH-10594,Ramipril 5mg,Heart,BR03,East Branch,143,2028-07-22,0.15,47,588
+BATCH-10595,Amoxicillin 500mg,Antibiotic,BR04,South Branch,179,2028-05-05,0.25,30,1703
+BATCH-10596,Warfarin 5mg,Anticoagulant,BR01,Central Pharmacy,218,2026-12-06,0.11,63,2852
+BATCH-10597,Amlodipine 5mg,Blood Pressure,BR04,South Branch,460,2027-10-14,0.09,5,1524
+BATCH-10598,Amlodipine 5mg,Blood Pressure,BR02,North Branch,162,2026-09-08,0.09,11,77
+BATCH-10599,Metformin 500mg,Diabetes,BR02,North Branch,60,2026-08-16,0.12,17,1036

@@ -1,0 +1,2 @@
+timestamp,batch_id,medicine,action,destination,override_reason,user
+2026-09-08 09:16:04,BATCH-10084,Salbutamol Inhaler,CONFIRMED,South Branch,,pharmacist
