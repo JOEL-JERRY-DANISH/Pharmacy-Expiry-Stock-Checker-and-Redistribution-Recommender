@@ -5,6 +5,12 @@ from recommender import generate_recommendations, calculate_baseline
 from log_manager import save_entry, load_log, get_summary
 from auth_config import CREDENTIALS                       # ← add this
 
+st.set_page_config(
+    page_title="Pharmacy Expiry Stock Checker",
+    page_icon="💊",
+    layout="wide"
+)
+
 # ============================================================
 # LOGIN SECTION — paste everything below here, after imports
 # ============================================================
@@ -59,17 +65,6 @@ if st.sidebar.button("Log Out"):
 # REST OF YOUR APP STARTS HERE — st.set_page_config etc
 # ============================================================
 
-st.set_page_config(
-    page_title="Pharmacy Stock Checker",
-    page_icon="💊",
-    layout="wide"
-)
-
-st.set_page_config(
-    page_title="Pharmacy Stock Checker",
-    page_icon="💊",
-    layout="wide"
-)
 
 st.title("💊 Pharmacy Expiry Stock Checker")
 st.caption(
