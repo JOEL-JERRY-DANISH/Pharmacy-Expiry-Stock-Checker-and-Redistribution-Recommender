@@ -15,21 +15,107 @@ __all__ = [
     "days_to_expiry", "urgency_label", "score_batch", "get_score_components",
     "calculate_need_score", "calculate_destination_need", "find_destinations",
     "generate_recommendations", "calculate_baseline",
+    "validate_numeric_field", "validate_batch_numerics",
 ]
 
-def days_to_expiry(expiry_str: str) -> int:
-    """Calculate integer days from today until the expiry date."""
-    exp = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-    today = datetime.today().date()
-    return (exp - today).days
+def days_to_expiry(expiry_str: Any) -> Optional[int]:
+    """Calculate integer days from today until the expiry date.
+    Returns None if the expiry date is missing, malformed, or invalid.
+    """
+    if expiry_str is None or pd.isna(expiry_str):
+        return None
+    try:
+        if not isinstance(expiry_str, str):
+            expiry_str = str(expiry_str)
+        cleaned = expiry_str.strip()
+        if not cleaned:
+            return None
+        exp = datetime.strptime(cleaned, "%Y-%m-%d").date()
+        today = datetime.today().date()
+        return (exp - today).days
+    except (ValueError, TypeError, AttributeError):
+        return None
 
-def urgency_label(dte: int) -> str:
+def urgency_label(dte: Optional[int]) -> str:
     """Categorize expiry urgency based on days to expiry."""
+    if dte is None or (isinstance(dte, float) and pd.isna(dte)):
+        return "invalid"
     if dte < 0:    return "expired"
     if dte <= 7:   return "critical"
     if dte <= 30:  return "near-expiry"
     if dte <= 90:  return "watch"
     return "safe"
+
+def validate_numeric_field(val: Any, field_name: str, is_integer: bool = True) -> tuple[bool, Optional[float], Optional[str]]:
+    """
+    Validate a single numeric value.
+    Returns (is_valid, parsed_value, error_message).
+    Rejects strings ('abc', 'hello', ''), None, NaN, inf, negatives, and non-integers if required.
+    """
+    if val is None or pd.isna(val):
+        return False, None, f"{field_name} cannot be empty or missing"
+    if isinstance(val, str) and not val.strip():
+        return False, None, f"{field_name} cannot be empty"
+    try:
+        f = float(val)
+        if pd.isna(f) or f == float("inf") or f == float("-inf"):
+            return False, None, f"invalid {field_name} '{val}': not a finite number"
+        if f < 0:
+            return False, None, f"{field_name} cannot be negative ({val})"
+        if is_integer and not f.is_integer():
+            return False, None, f"{field_name} must be an integer ({val})"
+        return True, (int(f) if is_integer else f), None
+    except (ValueError, TypeError):
+        return False, None, f"invalid {field_name} '{val}': not a valid number"
+
+def validate_batch_numerics(row: Any) -> tuple[bool, dict, list[str]]:
+    """
+    Validate numeric fields of an inventory row.
+    Returns (is_valid, cleaned_dict, error_messages).
+    """
+    errors = []
+    cleaned = {}
+
+    # 1. Quantity / current_stock
+    raw_qty = row.get("quantity") if "quantity" in row else row.get("current_stock")
+    v_qty, val_qty, err_qty = validate_numeric_field(raw_qty, "quantity", is_integer=True)
+    if not v_qty:
+        errors.append(err_qty)
+    else:
+        cleaned["quantity"] = val_qty
+
+    # 2. Unit cost
+    raw_cost = row.get("unit_cost_gbp") if "unit_cost_gbp" in row else row.get("unit_cost", 0.0)
+    v_cost, val_cost, err_cost = validate_numeric_field(raw_cost, "unit_cost_gbp", is_integer=False)
+    if not v_cost:
+        errors.append(err_cost)
+    else:
+        cleaned["unit_cost_gbp"] = val_cost
+
+    # 3. Demand per week
+    if "demand_per_week" in row:
+        raw_dem = row.get("demand_per_week")
+        v_dem, val_dem, err_dem = validate_numeric_field(raw_dem, "demand_per_week", is_integer=False)
+        if not v_dem:
+            errors.append(err_dem)
+        else:
+            cleaned["demand_per_week"] = int(val_dem)
+    else:
+        cleaned["demand_per_week"] = 0
+
+    # 4. Branch capacity remaining
+    if "branch_capacity_remaining" in row or "capacity" in row:
+        raw_cap = row.get("branch_capacity_remaining") if "branch_capacity_remaining" in row else row.get("capacity")
+        v_cap, val_cap, err_cap = validate_numeric_field(raw_cap, "branch_capacity_remaining", is_integer=False)
+        if not v_cap:
+            errors.append(err_cap)
+        else:
+            cleaned["branch_capacity_remaining"] = int(val_cap)
+    else:
+        cleaned["branch_capacity_remaining"] = 500
+
+    is_valid = len(errors) == 0
+    return is_valid, cleaned, errors
 
 class BatchScore(float):
     """
@@ -86,8 +172,14 @@ def score_batch(row, return_components=False):
     urg_map = {"critical": 100.0, "near-expiry": 50.0, "watch": 10.0}
     urg = urg_map.get(str(row.get("urgency", "")).strip().lower(), 0.0)
 
-    qty = max(0.0, float(row.get("quantity", 0) or 0))
-    cost = max(0.0, float(row.get("unit_cost_gbp", 0.0) or 0.0))
+    raw_qty = row.get("quantity") if "quantity" in row else row.get("current_stock", 0)
+    raw_cost = row.get("unit_cost_gbp") if "unit_cost_gbp" in row else row.get("unit_cost", 0.0)
+
+    v_qty, qty_val, _ = validate_numeric_field(raw_qty, "quantity", is_integer=False)
+    v_cost, cost_val, _ = validate_numeric_field(raw_cost, "unit_cost_gbp", is_integer=False)
+
+    qty = qty_val if (v_qty and qty_val is not None) else 0.0
+    cost = cost_val if (v_cost and cost_val is not None) else 0.0
     stock_value = round(qty * cost, 2)
 
     if urg == 0.0:
@@ -156,22 +248,36 @@ def calculate_need_score(dest_row, source_quantity):
 
     Total need_score = round(coverage_score + demand_score + capacity_score, 1)
     """
-    qty = max(0.0, float(dest_row.get("quantity", 0) or 0))
-    demand = max(0.0, float(dest_row.get("demand_per_week", 0) or 0))
-    cap = max(0.0, float(dest_row.get("branch_capacity_remaining", 0) or 0))
-    src_qty = max(1.0, float(source_quantity))
-
-    if demand <= 0:
+    v_src, src_qty_val, _ = validate_numeric_field(source_quantity, "source_quantity", is_integer=False)
+    if not v_src or src_qty_val is None or src_qty_val <= 0:
         return 0.0, {
-            "coverage_score": 0.0,
-            "demand_score": 0.0,
-            "capacity_score": 0.0,
-            "total_need_score": 0.0,
-            "weeks_of_cover": 0.0,
-            "dest_quantity": int(qty),
-            "dest_demand_per_week": int(demand),
-            "dest_capacity_remaining": int(cap),
+            "coverage_score": 0.0, "demand_score": 0.0, "capacity_score": 0.0,
+            "total_need_score": 0.0, "weeks_of_cover": 0.0, "dest_quantity": 0,
+            "dest_demand_per_week": 0, "dest_capacity_remaining": 0,
         }
+
+    raw_qty = dest_row.get("quantity") if "quantity" in dest_row else dest_row.get("current_stock", 0)
+    v_qty, qty_val, _ = validate_numeric_field(raw_qty, "quantity", is_integer=False)
+
+    raw_dem = dest_row.get("demand_per_week", 0)
+    v_dem, dem_val, _ = validate_numeric_field(raw_dem, "demand_per_week", is_integer=False)
+
+    raw_cap = dest_row.get("branch_capacity_remaining") if "branch_capacity_remaining" in dest_row else dest_row.get("capacity", 0)
+    v_cap, cap_val, _ = validate_numeric_field(raw_cap, "branch_capacity_remaining", is_integer=False)
+
+    if not v_dem or dem_val is None or dem_val <= 0 or not v_cap or cap_val is None or cap_val <= 0 or not v_qty or qty_val is None:
+        return 0.0, {
+            "coverage_score": 0.0, "demand_score": 0.0, "capacity_score": 0.0,
+            "total_need_score": 0.0, "weeks_of_cover": 0.0,
+            "dest_quantity": int(qty_val) if (v_qty and qty_val is not None) else 0,
+            "dest_demand_per_week": int(dem_val) if (v_dem and dem_val is not None) else 0,
+            "dest_capacity_remaining": int(cap_val) if (v_cap and cap_val is not None) else 0,
+        }
+
+    qty = float(qty_val)
+    demand = float(dem_val)
+    cap = float(cap_val)
+    src_qty = max(1.0, float(src_qty_val))
 
     woc = round(qty / demand, 2)
 
@@ -203,24 +309,45 @@ def calculate_need_score(dest_row, source_quantity):
 def calculate_destination_need(dest_row, usable_days=None, target_cover_weeks=8):
     """
     Calculate reasonable destination need based on weekly demand, current stock,
-    and target stock coverage (default 8 weeks) or consumption potential before expiry.
+    and target stock coverage (default 8 weeks) bounded by remaining shelf life.
 
     Guarantees:
     - Zero demand branches have 0 need.
     - Branches already well-stocked (>= target cover) have 0 need.
+    - When usable_days is specified, demand coverage is capped by usable shelf life:
+        usable_weeks = usable_days / 7.0
+        weeks_to_cover = min(target_cover_weeks, usable_weeks)
+        target_stock = demand * weeks_to_cover
+    - When usable_days <= 0 or invalid, need is 0.
     - Never returns a negative need.
+    - Never returns a negative demand.
     """
-    demand = float(dest_row.get("demand_per_week", 0))
-    if demand <= 0:
+    raw_dem = dest_row.get("demand_per_week", 0)
+    v_dem, dem_val, _ = validate_numeric_field(raw_dem, "demand_per_week", is_integer=False)
+    if not v_dem or dem_val is None or dem_val <= 0:
         return 0
 
-    current_stock = float(dest_row.get("quantity", 0))
-    target_stock = demand * target_cover_weeks
+    raw_qty = dest_row.get("quantity") if "quantity" in dest_row else dest_row.get("current_stock", 0)
+    v_qty, qty_val, _ = validate_numeric_field(raw_qty, "quantity", is_integer=False)
+    if not v_qty or qty_val is None:
+        return 0
 
-    if usable_days is not None and usable_days > 0:
-        consumption_potential = (demand / 7.0) * usable_days
-        target_stock = max(target_stock, consumption_potential)
+    demand = float(dem_val)
+    current_stock = float(qty_val)
 
+    if usable_days is not None:
+        try:
+            u_days = float(usable_days)
+        except (ValueError, TypeError):
+            u_days = 0.0
+        if u_days <= 0:
+            return 0
+        usable_weeks = u_days / 7.0
+        weeks_to_cover = min(float(target_cover_weeks), usable_weeks)
+    else:
+        weeks_to_cover = float(target_cover_weeks)
+
+    target_stock = demand * weeks_to_cover
     need = int(round(target_stock - current_stock))
     return max(0, need)
 
@@ -245,10 +372,22 @@ def find_destinations(source_row, all_df, transfer_days=DEFAULT_TRANSFER_DAYS):
        retains FLAG_FOR_REVIEW.
     8. Top 3 viable destinations are returned.
     """
+    # Safety Rule -1: Source quantity validation
+    raw_qty = source_row.get("quantity") if "quantity" in source_row else source_row.get("current_stock")
+    v_qty, source_qty, err_qty = validate_numeric_field(raw_qty, "quantity", is_integer=True)
+    if not v_qty or source_qty is None:
+        return [], "INVALID_NUMERIC_DATA", f"Invalid source quantity '{raw_qty}': must be a positive integer. Flagged for manual pharmacist review."
+    if source_qty <= 0:
+        return [], "ZERO_QUANTITY", f"Source quantity is {source_qty}. No stock to transfer."
+
     dte = source_row.get("dte")
-    if dte is None:
+    if dte is None or (isinstance(dte, float) and pd.isna(dte)):
         exp_str = source_row.get("expiry_date")
-        dte = days_to_expiry(exp_str) if exp_str else 0
+        dte = days_to_expiry(exp_str) if exp_str is not None else None
+
+    # Safety Rule 0: Invalid or missing expiry date requires manual review
+    if dte is None or (isinstance(dte, float) and pd.isna(dte)):
+        return [], "INVALID_EXPIRY", "Invalid or missing expiry date. Flagged for manual pharmacist review."
 
     # Safety Rule 1: Never transfer expired stock
     if dte < 0:
@@ -270,118 +409,113 @@ def find_destinations(source_row, all_df, transfer_days=DEFAULT_TRANSFER_DAYS):
     if candidates.empty:
         return [], "NO_OTHER_BRANCHES", "No other branches carry this medicine."
 
-    # Safety Rule 3: Exclude zero-demand and zero-capacity branches
-    viable = candidates[
-        (candidates["demand_per_week"] > 0) &
-        (candidates["branch_capacity_remaining"] > 0)
-    ].copy()
+    # Safety Rule 3: Exclude zero-demand, zero-capacity, and corrupt numeric branches
+    valid_dest_rows = []
+    for _, dest in candidates.iterrows():
+        is_val, clean, _ = validate_batch_numerics(dest)
+        if is_val and clean["demand_per_week"] > 0 and clean["branch_capacity_remaining"] > 0:
+            d_copy = dest.copy()
+            d_copy["quantity"] = clean["quantity"]
+            d_copy["demand_per_week"] = clean["demand_per_week"]
+            d_copy["branch_capacity_remaining"] = clean["branch_capacity_remaining"]
+            valid_dest_rows.append(d_copy)
 
-    if viable.empty:
-        if candidates["demand_per_week"].max() == 0:
-            msg = "All other branches report zero demand."
-        else:
-            msg = ("All receiving branches are at capacity. "
-                   "Consider splitting the batch.")
-        return [], "NO_VIABLE_DEST", msg
+    if not valid_dest_rows:
+        return [], "NO_VIABLE_DEST", "All receiving branches are at capacity, report zero demand, or contain invalid inventory data."
 
-    source_qty = int(source_row["quantity"])
+    viable = pd.DataFrame(valid_dest_rows)
+
     total_viable_capacity = int(viable["branch_capacity_remaining"].sum())
 
     usable_days = max(0, dte - transfer_days)
 
-    # Check if any viable branch can hold the entire batch alone
-    full_capacity_candidates = viable[viable["branch_capacity_remaining"] >= source_qty].copy()
-
-    if not full_capacity_candidates.empty:
-        # A single destination can accommodate the entire batch.
-        # Score and rank full-capacity candidates to find the highest-need destination.
-        scored_candidates = []
-        for _, dest in full_capacity_candidates.iterrows():
-            score, comps = calculate_need_score(dest, source_qty)
-            scored_candidates.append({
-                "dest": dest,
-                "need_score": score,
-                "components": comps,
-            })
-
-        scored_candidates.sort(
-            key=lambda item: (
-                -item["need_score"],
-                item["components"]["weeks_of_cover"],
-                -item["components"]["dest_demand_per_week"],
-                str(item["dest"]["branch_id"]),
-            )
+    # Safety Rule 4: If total capacity across all viable branches is less than source quantity,
+    # it cannot accommodate the batch
+    if total_viable_capacity < source_qty:
+        return [], "NO_VIABLE_DEST", (
+            f"All receiving branches lack sufficient available capacity for {source_qty} units "
+            f"(total capacity across branches: {total_viable_capacity} units). "
+            f"Flagged for manual pharmacist review."
         )
-        top_candidates = scored_candidates[:3]
-        allocations = {str(top_candidates[0]["dest"]["branch_id"]): source_qty}
-        for cand in top_candidates[1:]:
-            allocations[str(cand["dest"]["branch_id"])] = 0
-    else:
-        # No single destination can hold the entire batch.
-        # Safety Rule 4: If total capacity across all viable branches is less than source quantity,
-        # it cannot accommodate the batch
-        if total_viable_capacity < source_qty:
-            return [], "NO_VIABLE_DEST", (
-                f"All receiving branches lack sufficient available capacity for {source_qty} units "
-                f"(total capacity across branches: {total_viable_capacity} units). "
-                f"Flagged for manual pharmacist review."
-            )
 
-        # Batch must be divided across multiple destination branches.
-        # Score and rank all viable candidates by need score
-        scored_candidates = []
-        for _, dest in viable.iterrows():
-            score, comps = calculate_need_score(dest, source_qty)
-            scored_candidates.append({
-                "dest": dest,
-                "need_score": score,
-                "components": comps,
-            })
+    # Score and evaluate all viable candidate branches
+    scored_all = []
+    for _, dest in viable.iterrows():
+        score, comps = calculate_need_score(dest, source_qty)
+        need = calculate_destination_need(dest, usable_days=usable_days)
+        cap = int(dest.get("branch_capacity_remaining", 0) or 0)
+        scored_all.append({
+            "dest": dest,
+            "need_score": score,
+            "components": comps,
+            "need": need,
+            "cap": cap,
+            "can_absorb_full": (cap >= source_qty and need >= source_qty),
+        })
 
-        scored_candidates.sort(
-            key=lambda item: (
-                -item["need_score"],
-                item["components"]["weeks_of_cover"],
-                -item["components"]["dest_demand_per_week"],
-                str(item["dest"]["branch_id"]),
-            )
+    # Sort deterministically by:
+    # 1. Highest need score
+    # 2. Lowest weeks of cover
+    # 3. Highest weekly demand
+    # 4. Branch ID (string tie-breaker)
+    scored_all.sort(
+        key=lambda item: (
+            -item["need_score"],
+            item["components"]["weeks_of_cover"],
+            -item["components"]["dest_demand_per_week"],
+            str(item["dest"]["branch_id"]),
         )
-        top_candidates = scored_candidates[:3]
+    )
 
-        # Calculate recommended transfer quantity for each destination:
-        # Constraints:
-        # - never transfer more than source quantity
-        # - never transfer more than destination capacity
-        # - never transfer more than reasonable destination need
-        # - total recommended transfer quantity never exceeds source quantity
-        remaining_to_allocate = source_qty
-        allocations = {}
+    # If branches exist that can accommodate the entire batch alone (both capacity >= source_qty
+    # and destination need >= source_qty), prioritize them at the front of candidates.
+    full_candidates = [c for c in scored_all if c["can_absorb_full"]]
+    other_candidates = [c for c in scored_all if not c["can_absorb_full"]]
+    top_candidates = (full_candidates + other_candidates)[:3]
 
-        # Pass 1: Allocate by need and capacity
+    # Calculate recommended transfer quantity for each destination:
+    # Constraints:
+    # - transfer_quantity = min(remaining_source_quantity, destination_need, destination_capacity)
+    # - never transfer more than source quantity
+    # - never transfer more than destination capacity
+    # - never transfer more than reasonable destination need
+    # - total recommended transfer quantity never exceeds source quantity
+    # - allocation is never negative
+    # - zero-need destinations receive zero
+    # - zero-capacity destinations receive zero
+    remaining_to_allocate = max(0, source_qty)
+    allocations = {}
+
+    # Pass 1: Allocate by need and capacity
+    for cand in top_candidates:
+        dest = cand["dest"]
+        bid = str(dest["branch_id"])
+        cap = max(0, cand["cap"])
+        need = max(0, cand["need"])
+
+        allocated = max(0, min(remaining_to_allocate, cap, need))
+        allocations[bid] = allocated
+        remaining_to_allocate -= allocated
+
+    # Pass 2: If remaining units exist and destinations have remaining capacity and need,
+    # allocate remainder respecting remaining capacity and remaining destination need
+    if remaining_to_allocate > 0:
         for cand in top_candidates:
+            if remaining_to_allocate <= 0:
+                break
             dest = cand["dest"]
             bid = str(dest["branch_id"])
-            cap = int(dest["branch_capacity_remaining"])
-            need = calculate_destination_need(dest, usable_days=usable_days)
+            cap = max(0, cand["cap"])
+            need = max(0, cand["need"])
 
-            allocated = min(remaining_to_allocate, cap, need)
-            allocations[bid] = allocated
-            remaining_to_allocate -= allocated
+            already_allocated = max(0, allocations.get(bid, 0))
+            remaining_capacity = max(0, cap - already_allocated)
+            remaining_need = max(0, need - already_allocated)
 
-        # Pass 2: If remaining units exist and destinations have remaining capacity,
-        # allocate remainder up to destination capacity
-        if remaining_to_allocate > 0:
-            for cand in top_candidates:
-                if remaining_to_allocate <= 0:
-                    break
-                dest = cand["dest"]
-                bid = str(dest["branch_id"])
-                cap = int(dest["branch_capacity_remaining"])
-                room = cap - allocations[bid]
-                if room > 0:
-                    add_qty = min(remaining_to_allocate, room)
-                    allocations[bid] += add_qty
-                    remaining_to_allocate -= add_qty
+            add_qty = max(0, min(remaining_to_allocate, remaining_capacity, remaining_need))
+            if add_qty > 0:
+                allocations[bid] += add_qty
+                remaining_to_allocate -= add_qty
 
     results = []
     source_score = source_row.get("score", score_batch(source_row))
@@ -399,8 +533,10 @@ def find_destinations(source_row, all_df, transfer_days=DEFAULT_TRANSFER_DAYS):
 
         # Expected consumption during remaining shelf life after transit
         expected_demand = (dest["demand_per_week"] / 7.0) * usable_days
-        effective_qty = transfer_qty if transfer_qty > 0 else source_qty
-        absorption_pct = min(100, int(round((expected_demand / max(1, effective_qty)) * 100)))
+        if transfer_qty <= 0:
+            absorption_pct = 0
+        else:
+            absorption_pct = max(0, min(100, int(round((expected_demand / float(transfer_qty)) * 100))))
 
         reason = (
             f"The medicine is approaching expiry ({dte} days left, risk score: {source_score}), "
@@ -454,7 +590,18 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
     df["dte"]         = df["expiry_date"].apply(days_to_expiry)
     df["urgency"]     = df["dte"].apply(urgency_label)
     df["score"]       = df.apply(score_batch, axis=1)
-    df["stock_value"] = (df["quantity"] * df["unit_cost_gbp"]).round(2)
+
+    # Safe stock_value computation
+    qty_series = pd.to_numeric(df.get("quantity", df.get("current_stock", 0)), errors="coerce")
+    cost_series = pd.to_numeric(df.get("unit_cost_gbp", df.get("unit_cost", 0)), errors="coerce")
+    valid_val_mask = qty_series.notna() & (qty_series >= 0) & cost_series.notna() & (cost_series >= 0)
+    df["stock_value"] = (qty_series * cost_series).round(2).where(valid_val_mask, 0.0)
+
+    # Validate each row's numeric integrity
+    validations = [validate_batch_numerics(row) for _, row in df.iterrows()]
+    df["is_numeric_valid"] = [v[0] for v in validations]
+    df["cleaned_numerics"] = [v[1] for v in validations]
+    df["numeric_errors"]   = [v[2] for v in validations]
 
     # ML Expiry Risk Prediction step (supporting the rule-based engine)
     try:
@@ -462,42 +609,154 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
         predictor = get_ml_predictor()
         df = predictor.predict_dataframe(df)
     except Exception:
-        df["ml_risk_probability"] = 0.0
-        df["ml_risk_class"] = "Low"
+        df["ml_risk_probability"] = None
+        df["ml_risk_class"] = "Unavailable"
 
-    # Actionable: Near-expiry or critical items with sufficient quantity
-    # Never recommends expired stock (urgency == 'expired' is excluded)
-    actionable = df[
-        (df["urgency"].isin(["critical", "near-expiry"])) &
-        (df["quantity"] >= MIN_QTY)
-    ].sort_values("score", ascending=False)
+    # Actionable items:
+    # 1. Invalid numerics (corrupted data -> must be reviewed, never transferred)
+    # 2. Invalid expiry (must be reviewed, never transferred)
+    # 3. Valid near-expiry or critical items with sufficient quantity (>= MIN_QTY)
+    def row_is_actionable(r):
+        if not r["is_numeric_valid"]:
+            return True
+        if r["urgency"] == "invalid":
+            return True
+        if r["urgency"] in ["critical", "near-expiry"]:
+            qty_val = r["cleaned_numerics"].get("quantity", 0)
+            return qty_val >= MIN_QTY
+        return False
+
+    actionable_mask = df.apply(row_is_actionable, axis=1)
+    actionable = df[actionable_mask].sort_values("score", ascending=False)
 
     recs = []
     for _, row in actionable.iterrows():
+        # Corrupted numeric input check
+        if not row.get("is_numeric_valid", True):
+            num_errs = row.get("numeric_errors", ["Invalid numeric inventory data"])
+            clean_reason = f"Corrupted numeric inventory data: {'; '.join(num_errs)}. Flagged for manual pharmacist review."
+            dte_val = int(row["dte"]) if (row.get("dte") is not None and not pd.isna(row.get("dte"))) else None
+            score_comp = get_score_components(row)
+            explanation = (
+                f"Recommended Action: FLAG_FOR_REVIEW\n\n"
+                f"Source: {row.get('branch_name')}\n"
+                f"Destination: None\n"
+                f"Quantity: {row.get('quantity')}\n\n"
+                f"Reason:\n{clean_reason}\n\n"
+                f"ML Expiry Risk Prediction: Unavailable"
+            )
+            rec = {
+                "recommended_action":    "FLAG_FOR_REVIEW",
+                "action":                "FLAG_FOR_REVIEW",
+                "source_branch":         row.get("branch_name"),
+                "source_branch_id":      row.get("branch_id"),
+                "destination_branch":    None,
+                "destination_branch_id": None,
+                "suggested_quantity":    0,
+                "risk_urgency":          "invalid",
+                "score":                 0.0,
+                "score_components":      score_comp,
+                "urgency_score":         0.0,
+                "quantity_score":        0.0,
+                "value_score":           0.0,
+                "reason":                clean_reason,
+                "explanation":           explanation,
+                "decision_factors":      {
+                    "days_to_expiry":     dte_val,
+                    "current_stock":      row.get("quantity"),
+                    "demand":             row.get("demand_per_week"),
+                    "destination_demand": None,
+                    "available_capacity": None,
+                    "transfer_time_days": transfer_days,
+                    "medicine_value_gbp": 0.0,
+                    "risk_score":         0.0,
+                    "score_components":   score_comp,
+                    "urgency_score":      0.0,
+                    "quantity_score":     0.0,
+                    "value_score":        0.0,
+                    "ml_risk_probability": None,
+                    "ml_risk_class":      "Unavailable",
+                },
+                "ml_risk_probability":   None,
+                "ml_risk_class":         "Unavailable",
+                "batch_id":              row.get("batch_id"),
+                "medicine_name":         row.get("medicine_name"),
+                "category":              row.get("category"),
+                "branch_name":           row.get("branch_name"),
+                "branch_id":             row.get("branch_id"),
+                "quantity":              row.get("quantity"),
+                "expiry_date":           row.get("expiry_date"),
+                "dte":                   dte_val,
+                "days_to_expiry":        dte_val,
+                "urgency":               "invalid",
+                "stock_value":           0.0,
+                "unit_cost_gbp":         row.get("unit_cost_gbp"),
+                "confidence":            "LOW",
+                "destinations":          [],
+                "is_high_impact":        False,
+                "requires_confirmation": False,
+                "is_feasible":           False,
+                "transfer_time_days":    transfer_days,
+            }
+            recs.append(rec)
+            continue
+
         dests, status, msg = find_destinations(row, candidate_pool, transfer_days=transfer_days)
         high_impact = (row["stock_value"] > HIGH_VALUE or
                        row["quantity"]    > HIGH_QTY)
 
         source_demand = int(row.get("demand_per_week", 0))
-        ml_prob = float(row.get("ml_risk_probability", 0.0))
-        ml_class = str(row.get("ml_risk_class", "Low"))
+
+        raw_prob = row.get("ml_risk_probability")
+        if raw_prob is not None and not pd.isna(raw_prob):
+            try:
+                ml_prob = float(raw_prob)
+            except (ValueError, TypeError):
+                ml_prob = None
+        else:
+            ml_prob = None
+
+        raw_class = row.get("ml_risk_class")
+        if raw_class is not None and not pd.isna(raw_class):
+            ml_class = str(raw_class)
+        else:
+            ml_class = "Unavailable"
+
+        if ml_prob is None and ml_class not in ["Low", "Medium", "High"]:
+            ml_class = "Unavailable"
+
+        # If expiry date is invalid, ML model cannot make a valid expiry prediction
+        if row.get("dte") is None or (isinstance(row.get("dte"), float) and pd.isna(row.get("dte"))):
+            ml_prob = None
+            ml_class = "Unavailable"
+
+        ml_summary = (
+            f"ML Expiry Risk Prediction: {ml_class} ({int(ml_prob * 100)}% probability)"
+            if ml_prob is not None
+            else f"ML Expiry Risk Prediction: {ml_class}"
+        )
+
         score_comp = get_score_components(row)
 
         if status != "OK" or not dests:
-            if "zero demand" in msg.lower():
+            dte_val = int(row["dte"]) if (row.get("dte") is not None and not pd.isna(row.get("dte"))) else None
+            dte_str = f"{dte_val} days left" if dte_val is not None else "Unknown days left"
+            if status == "INVALID_EXPIRY" or "invalid" in msg.lower():
+                clean_reason = msg
+            elif "zero demand" in msg.lower():
                 clean_reason = (
-                    f"The medicine is approaching expiry ({int(row['dte'])} days left, risk score: {row['score']}), "
+                    f"The medicine is approaching expiry ({dte_str}, risk score: {row['score']}), "
                     f"but all other branches report zero demand. Flagged for manual pharmacist review."
                 )
             elif "capacity" in msg.lower():
                 clean_reason = (
-                    f"The medicine is approaching expiry ({int(row['dte'])} days left, risk score: {row['score']}), "
+                    f"The medicine is approaching expiry ({dte_str}, risk score: {row['score']}), "
                     f"but all receiving branches lack sufficient available capacity for {int(row['quantity'])} units. "
                     f"Flagged for manual pharmacist review."
                 )
             elif "transit time" in msg.lower() or "shelf life" in msg.lower():
                 clean_reason = (
-                    f"The medicine is approaching expiry ({int(row['dte'])} days left), "
+                    f"The medicine is approaching expiry ({dte_str}), "
                     f"leaving insufficient shelf life for safe transit time (~{transfer_days}d transit). "
                     f"Flagged for urgent local dispensing or disposal."
                 )
@@ -505,7 +764,7 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
                 clean_reason = msg
 
             decision_factors = {
-                "days_to_expiry":     int(row["dte"]),
+                "days_to_expiry":     dte_val,
                 "current_stock":      int(row["quantity"]),
                 "demand":             source_demand,
                 "destination_demand": None,
@@ -530,7 +789,7 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
                 f"{clean_reason}\n\n"
                 f"Score Breakdown: Urgency: {score_comp['urgency_score']:.1f}, "
                 f"Quantity: {score_comp['quantity_score']:.1f}, Value: {score_comp['value_score']:.1f}\n\n"
-                f"ML Expiry Risk Prediction: {ml_class} ({int(ml_prob * 100)}% probability)"
+                f"{ml_summary}"
             )
 
             rec = {
@@ -562,15 +821,15 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
                 "branch_id":             row["branch_id"],
                 "quantity":              int(row["quantity"]),
                 "expiry_date":           row["expiry_date"],
-                "dte":                   int(row["dte"]),
-                "days_to_expiry":        int(row["dte"]),
+                "dte":                   dte_val,
+                "days_to_expiry":        dte_val,
                 "urgency":               row["urgency"],
                 "stock_value":           float(row["stock_value"]),
                 "unit_cost_gbp":         float(row["unit_cost_gbp"]),
                 "confidence":            "LOW",
                 "destinations":          [],
                 "is_high_impact":        high_impact,
-                "requires_confirmation": False,
+                "requires_confirmation": high_impact,
                 "is_feasible":           False,
                 "transfer_time_days":    transfer_days,
             }
@@ -591,8 +850,10 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
             dest_capacity = int(best["dest_capacity"])
             dest_transfer_qty = int(best.get("transfer_quantity", row["quantity"]))
 
+            dte_val = int(row["dte"]) if (row.get("dte") is not None and not pd.isna(row.get("dte"))) else None
+
             decision_factors = {
-                "days_to_expiry":     int(row["dte"]),
+                "days_to_expiry":     dte_val,
                 "current_stock":      int(row["quantity"]),
                 "demand":             source_demand,
                 "destination_demand": dest_demand,
@@ -628,7 +889,7 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
                     f"{best['reason']}\n\n"
                     f"Score Breakdown: Urgency: {score_comp['urgency_score']:.1f}, "
                     f"Quantity: {score_comp['quantity_score']:.1f}, Value: {score_comp['value_score']:.1f}\n\n"
-                    f"ML Expiry Risk Prediction: {ml_class} ({int(ml_prob * 100)}% probability)"
+                    f"{ml_summary}"
                 )
                 dest_branch_str = best["dest_branch_name"]
                 dest_branch_id_str = best["dest_branch_id"]
@@ -661,7 +922,7 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
                     + "; ".join(f"{d['dest_branch_name']} ({d['transfer_quantity']} units)" for d in split_dests) + ".\n\n"
                     f"Score Breakdown: Urgency: {score_comp['urgency_score']:.1f}, "
                     f"Quantity: {score_comp['quantity_score']:.1f}, Value: {score_comp['value_score']:.1f}\n\n"
-                    f"ML Expiry Risk Prediction: {ml_class} ({int(ml_prob * 100)}% probability)"
+                    f"{ml_summary}"
                 )
                 dest_branch_str = ", ".join(f"{d['dest_branch_name']} ({d['transfer_quantity']})" for d in split_dests)
                 dest_branch_id_str = ", ".join(str(d["dest_branch_id"]) for d in split_dests)
@@ -708,8 +969,8 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
                 "branch_id":             row["branch_id"],
                 "quantity":              int(row["quantity"]),
                 "expiry_date":           row["expiry_date"],
-                "dte":                   int(row["dte"]),
-                "days_to_expiry":        int(row["dte"]),
+                "dte":                   dte_val,
+                "days_to_expiry":        dte_val,
                 "urgency":               row["urgency"],
                 "stock_value":           float(row["stock_value"]),
                 "unit_cost_gbp":         float(row["unit_cost_gbp"]),
@@ -734,7 +995,10 @@ def calculate_baseline(df: pd.DataFrame) -> float:
     between today and 30 days from now (inclusive).
     """
     df = df.copy()
-    df["dte"]         = df["expiry_date"].apply(days_to_expiry)
-    df["stock_value"] = df["quantity"] * df["unit_cost_gbp"]
-    at_risk = df[df["dte"].between(0, 30)]
-    return round(at_risk["stock_value"].sum(), 2)
+    df["dte"] = df["expiry_date"].apply(days_to_expiry)
+    qty_num = pd.to_numeric(df.get("quantity", df.get("current_stock", 0)), errors="coerce")
+    cost_num = pd.to_numeric(df.get("unit_cost_gbp", df.get("unit_cost", 0)), errors="coerce")
+    valid_val_mask = qty_num.notna() & (qty_num >= 0) & cost_num.notna() & (cost_num >= 0)
+    df["stock_value"] = (qty_num * cost_num).where(valid_val_mask, 0.0)
+    at_risk = df[df["dte"].between(0, 30) & valid_val_mask]
+    return round(float(at_risk["stock_value"].sum()), 2)

@@ -17,7 +17,7 @@ st.set_page_config(
 # ============================================================
 
 def check_password(username, password):
-    """Check username and SHA-256 hash of password against stored credentials."""
+    """Check username and password against stored credentials."""
     user = authenticate_user(username, password)
     if user:
         return True, user

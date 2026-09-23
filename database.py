@@ -1,9 +1,12 @@
 # database.py
 import sqlite3
 import os
+import logging
 import pandas as pd
 from datetime import datetime
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from constants import (
     DB_PATH,
@@ -21,6 +24,8 @@ __all__ = [
     "get_connection", "initialise_database", "load_stock", "save_decision",
     "load_decisions", "import_stock_from_csv", "invalidate_stock_cache",
     "update_stock_quantity", "export_decisions_to_csv",
+    "DatabaseLoadError", "get_last_stock_load_error",
+    "DatabaseSaveError", "get_last_decision_save_error",
 ]
 
 
@@ -193,41 +198,91 @@ def _seed_if_empty(conn):
         except Exception as e:
             print(f"Warning: Could not seed decisions from {DECISIONS_CSV}: {e}")
 
-def load_stock(db_path=None):
+class DatabaseLoadError(RuntimeError):
+    """Raised when loading inventory from SQLite fails due to corruption, lock, or query error."""
+    pass
+
+
+LAST_STOCK_LOAD_ERROR: Optional[str] = None
+
+
+def get_last_stock_load_error() -> Optional[str]:
+    """Return the last error encountered during stock loading, or None if successful."""
+    return LAST_STOCK_LOAD_ERROR
+
+
+def load_stock(db_path=None, raise_on_error=False):
     """
     Load stock data from SQLite as the primary operational data store.
-    Falls back gracefully to CSV if SQLite is unavailable or empty.
+
+    Distinguishes between:
+      CASE A: First-time setup (database file does not exist yet). Automatically
+              initialises and seeds from CSV if seed=True.
+      CASE B: Database exists but loading fails due to SQLite corruption, lock,
+              schema error, or query failure. In Case B, does NOT silently fall
+              back to stale CSV data; surfaces the error and returns an explicit
+              failure state (or raises DatabaseLoadError if raise_on_error=True).
     """
+    global LAST_STOCK_LOAD_ERROR
+    LAST_STOCK_LOAD_ERROR = None
     path = db_path or DB_PATH
-    try:
-        if not os.path.exists(path):
-            initialise_database(path)
 
-        conn = get_connection(path)
-        df = pd.read_sql("SELECT * FROM stock", conn)
-        conn.close()
-
-        if df.empty and path == DB_PATH:
-            # Attempt re-seed on default database
-            initialise_database(path, seed=True)
-            conn = get_connection(path)
-            df = pd.read_sql("SELECT * FROM stock", conn)
-            conn.close()
-
-        if not df.empty or path != DB_PATH:
-            return df
-    except Exception as e:
-        print(f"SQLite load_stock warning: {e}. Falling back to CSV.")
-
-    # Graceful fallback to CSV
-    if os.path.exists(MEDICINES_CSV):
-        return pd.read_csv(MEDICINES_CSV)
-
-    return pd.DataFrame(columns=[
+    stock_columns = [
         "batch_id", "medicine_name", "category", "branch_id",
         "branch_name", "quantity", "expiry_date", "unit_cost_gbp",
         "demand_per_week", "branch_capacity_remaining"
-    ])
+    ]
+
+    # CASE A: First-time setup — database file does not exist on disk yet
+    if not os.path.exists(path):
+        try:
+            initialise_database(path, seed=True)
+        except Exception as e:
+            err_msg = f"Failed to initialise database at '{path}': {e}"
+            LAST_STOCK_LOAD_ERROR = err_msg
+            print(f"ERROR: {err_msg}")
+            if raise_on_error:
+                raise DatabaseLoadError(err_msg) from e
+            failed_df = pd.DataFrame(columns=stock_columns)
+            failed_df.attrs["error"] = err_msg
+            failed_df.attrs["load_failed"] = True
+            return failed_df
+
+    # Query SQLite database
+    conn = None
+    try:
+        conn = get_connection(path)
+        df = pd.read_sql("SELECT * FROM stock", conn)
+
+        # If the default database was initialized empty, attempt re-seeding
+        if df.empty and path == DB_PATH:
+            initialise_database(path, seed=True)
+            df = pd.read_sql("SELECT * FROM stock", conn)
+
+        return df
+
+    except Exception as e:
+        # CASE B failure: Corrupted DB, locked DB, missing tables, invalid schema
+        err_msg = f"SQLite load_stock error for '{path}': {e}"
+        LAST_STOCK_LOAD_ERROR = err_msg
+        print(f"ERROR: {err_msg}")
+
+        if raise_on_error:
+            raise DatabaseLoadError(err_msg) from e
+
+        # Explicit failure state: Empty DataFrame with stock schema and error metadata.
+        # DO NOT silently fall back to MEDICINES_CSV to prevent operating on stale inventory.
+        failed_df = pd.DataFrame(columns=stock_columns)
+        failed_df.attrs["error"] = err_msg
+        failed_df.attrs["load_failed"] = True
+        return failed_df
+
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def invalidate_stock_cache():
     """
@@ -292,11 +347,25 @@ def update_stock_quantity(batch_id, new_quantity, db_path=None):
 
     return updated
 
+class DatabaseSaveError(RuntimeError):
+    """Raised when writing an operational audit decision to SQLite fails."""
+    pass
+
+
+LAST_DECISION_SAVE_ERROR: Optional[str] = None
+
+
+def get_last_decision_save_error() -> Optional[str]:
+    """Return the last error encountered during decision saving, or None if successful."""
+    return LAST_DECISION_SAVE_ERROR
+
+
 def save_decision(batch_id, medicine, action,
                   destination="", override_reason="",
                   user="pharmacist", source_branch="",
                   quantity=0, system_recommendation="",
-                  final_decision="", db_path=None, csv_path=None):
+                  final_decision="", db_path=None, csv_path=None,
+                  raise_on_error=False) -> bool:
     """
     Save an operational decision to SQLite (the sole authoritative audit log).
 
@@ -306,11 +375,41 @@ def save_decision(batch_id, medicine, action,
 
     Parameters
     ----------
-    csv_path : str or None
-        If provided, the decision is also written to this CSV file.
-        This is used exclusively for test isolation (temporary files).
-        In normal production use, leave as None.
+    batch_id : str
+        The unique batch identifier.
+    medicine : str
+        Medicine name.
+    action : str
+        Decision action (CONFIRMED, OVERRIDDEN, MANUALLY_REVIEWED).
+    destination : str, optional
+        Destination label.
+    override_reason : str, optional
+        Reason provided for an override.
+    user : str, optional
+        Name/username of pharmacist.
+    source_branch : str, optional
+        Source branch name.
+    quantity : int, float, or str, optional
+        Quantity involved.
+    system_recommendation : str, optional
+        System's original recommendation.
+    final_decision : str, optional
+        Final action decided.
+    db_path : str, optional
+        Path to SQLite database file.
+    csv_path : str or None, optional
+        If provided, the decision is also written to this CSV file (test isolation only).
+    raise_on_error : bool, optional
+        If True, raises DatabaseSaveError on failure instead of returning False.
+
+    Returns
+    -------
+    bool
+        True if the audit decision was successfully persisted, False otherwise.
     """
+    global LAST_DECISION_SAVE_ERROR
+    LAST_DECISION_SAVE_ERROR = None
+
     path = db_path or DB_PATH
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -326,6 +425,7 @@ def save_decision(batch_id, medicine, action,
     except (ValueError, TypeError):
         qty_int = 0
 
+    conn = None
     # Primary write to SQLite — sole source of truth
     try:
         if not os.path.exists(path):
@@ -344,32 +444,48 @@ def save_decision(batch_id, medicine, action,
                 destination, qty_int, system_recommendation, std_action,
                 final_decision, override_reason
             ))
-        conn.close()
-        invalidate_stock_cache()
-    except Exception as e:
-        print(f"Error saving decision to SQLite: {e}")
 
-    # Optional: write to a CSV file only when explicitly requested (test isolation)
-    if csv_path:
-        try:
-            new_row = {
-                "timestamp":             now_str,
-                "user":                  user,
-                "medicine":              medicine,
-                "batch_id":              batch_id,
-                "source_branch":         source_branch,
-                "destination":           destination,
-                "quantity":              qty_int,
-                "system_recommendation": system_recommendation,
-                "action":                std_action,
-                "final_decision":        final_decision,
-                "override_reason":       override_reason,
-            }
-            df_row = pd.DataFrame([new_row])
-            file_exists = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0
-            df_row.to_csv(csv_path, mode="a", header=not file_exists, index=False)
-        except Exception as e:
-            print(f"Warning: Could not write decision to {csv_path}: {e}")
+        # Only write to CSV if primary SQLite write succeeded (prevents inconsistent state)
+        if csv_path:
+            try:
+                new_row = {
+                    "timestamp":             now_str,
+                    "user":                  user,
+                    "medicine":              medicine,
+                    "batch_id":              batch_id,
+                    "source_branch":         source_branch,
+                    "destination":           destination,
+                    "quantity":              qty_int,
+                    "system_recommendation": system_recommendation,
+                    "action":                std_action,
+                    "final_decision":        final_decision,
+                    "override_reason":       override_reason,
+                }
+                df_row = pd.DataFrame([new_row])
+                file_exists = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0
+                df_row.to_csv(csv_path, mode="a", header=not file_exists, index=False)
+            except Exception as e:
+                print(f"Warning: Could not write decision to {csv_path}: {e}")
+
+        invalidate_stock_cache()
+        return True
+
+    except Exception as e:
+        err_msg = f"Failed to persist decision for batch '{batch_id}' to SQLite at '{path}': {e}"
+        LAST_DECISION_SAVE_ERROR = err_msg
+        logger.error(err_msg)
+        print(f"ERROR: {err_msg}")
+
+        if raise_on_error:
+            raise DatabaseSaveError(err_msg) from e
+        return False
+
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def load_decisions(db_path=None):
     """
@@ -470,9 +586,9 @@ def validate_stock_row(row, existing_db_batches=None, seen_in_file=None, update_
         branch_id = str(raw_branch).strip()
 
     # 4. quantity
-    raw_qty = row.get("quantity")
+    raw_qty = row.get("quantity") if "quantity" in row else row.get("current_stock")
     quantity = None
-    if raw_qty is None or pd.isna(raw_qty):
+    if raw_qty is None or pd.isna(raw_qty) or (isinstance(raw_qty, str) and not raw_qty.strip()):
         errors.append("quantity cannot be empty")
     else:
         try:
@@ -500,9 +616,9 @@ def validate_stock_row(row, existing_db_batches=None, seen_in_file=None, update_
             errors.append(f"invalid expiry_date '{s_exp}': must be YYYY-MM-DD")
 
     # 6. unit_cost_gbp
-    raw_cost = row.get("unit_cost_gbp")
+    raw_cost = row.get("unit_cost_gbp") if "unit_cost_gbp" in row else row.get("unit_cost")
     unit_cost_gbp = None
-    if raw_cost is None or pd.isna(raw_cost):
+    if raw_cost is None or pd.isna(raw_cost) or (isinstance(raw_cost, str) and not raw_cost.strip()):
         errors.append("unit_cost_gbp cannot be empty")
     else:
         try:
@@ -517,7 +633,7 @@ def validate_stock_row(row, existing_db_batches=None, seen_in_file=None, update_
     # 7. demand_per_week
     raw_dem = row.get("demand_per_week")
     demand_per_week = None
-    if raw_dem is None or pd.isna(raw_dem):
+    if raw_dem is None or pd.isna(raw_dem) or (isinstance(raw_dem, str) and not raw_dem.strip()):
         errors.append("demand_per_week cannot be empty")
     else:
         try:
@@ -532,9 +648,9 @@ def validate_stock_row(row, existing_db_batches=None, seen_in_file=None, update_
             errors.append(f"invalid demand_per_week '{raw_dem}': must be a non-negative integer")
 
     # 8. branch_capacity_remaining
-    raw_cap = row.get("branch_capacity_remaining")
+    raw_cap = row.get("branch_capacity_remaining") if "branch_capacity_remaining" in row else row.get("capacity")
     branch_capacity_remaining = None
-    if raw_cap is None or pd.isna(raw_cap):
+    if raw_cap is None or pd.isna(raw_cap) or (isinstance(raw_cap, str) and not raw_cap.strip()):
         errors.append("branch_capacity_remaining cannot be empty")
     else:
         try:
