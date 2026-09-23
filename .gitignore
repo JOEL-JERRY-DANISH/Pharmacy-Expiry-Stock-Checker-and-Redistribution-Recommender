@@ -1,4 +1,28 @@
-venv/ 
-__pycache__/ 
-.pytest_cache/ 
-*.pyc 
+# Virtual environment
+venv/
+
+# Python byte-cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Secrets — never commit the .env file (contains real passwords and keys)
+.env
+
+# Streamlit secrets — never commit (contains hashed passwords and API keys)
+# The .streamlit/secrets.toml.example file IS tracked (safe template only)
+.streamlit/secrets.toml
+
+# SQLite database (operational data — use CSV seeds instead)
+*.db
+
+# Operational data directory (seeded from CSV at runtime)
+data/
+
+# ML evaluation results (generated at runtime by evaluate_ml.py)
+data/ml_evaluation_results.json
+
+# Scratch / validation helper scripts (not part of the project deliverable)
+check_readme.py
+check_syntax.py

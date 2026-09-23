@@ -1,15 +1,30 @@
 # alert_manager.py
 import smtplib
+import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from typing import List
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-# Replace with your Gmail address and app password
-EMAIL_SENDER   = "yourpharmacy@gmail.com"
-EMAIL_PASSWORD = "your_app_password"
-EMAIL_RECEIVER = "pharmacist@pharmacy.com"
+EMAIL_SENDER   = os.getenv("EMAIL_SENDER",   "")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
+EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "")
+#: Public URL shown in alert emails.  Set APP_URL in .env to your deployment address.
+APP_URL        = os.getenv("APP_URL",        "http://localhost:8501")
 
-def send_alert(critical_items):
-    """Send email alert for critical near-expiry items."""
+def send_alert(critical_items: list) -> bool:
+    """Send an email alert for critical near-expiry items.
+
+    Args:
+        critical_items: List of recommendation dicts whose urgency is 'critical'.
+
+    Returns:
+        True if the email was delivered successfully, False otherwise.
+    """
     if not critical_items:
         return False
 
@@ -28,7 +43,7 @@ def send_alert(critical_items):
         )
 
     body += "\nPlease log in to take action:\n"
-    body += "http://localhost:8501\n"
+    body += f"{APP_URL}\n"
 
     try:
         msg = MIMEMultipart()

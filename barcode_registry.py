@@ -1,70 +1,144 @@
-import pandas as pd
-from datetime import datetime
+# barcode_registry.py
+#
+# BarcodeRegistry is now backed entirely by SQLite.
+# CSV files are no longer read or written at runtime; they exist only for
+# initial seeding and export.
+#
+# Backward-compatibility note
+# ---------------------------
+# The constructor used to accept a CSV path:
+#   BarcodeRegistry("data/barcode_history.csv")
+# It now accepts a SQLite db path or a CSV path.  When a .csv path is
+# supplied, the class transparently derives a sibling .db path so that
+# existing test code that passes a temp CSV file continues to work without
+# any changes to test_edge_cases.py.
+
+import os
+from database import (
+    initialise_database,
+    register_barcode,
+    supersede_barcode,
+    resolve_barcode,
+    get_all_barcode_batch_ids,
+    get_connection,
+    DB_PATH,
+)
+
+
+def _db_path_from_arg(path):
+    """
+    Convert a constructor path argument to a SQLite db path.
+
+    Rules:
+      - None / omitted  → use the project default (database.DB_PATH)
+      - ends with .db   → use as-is
+      - ends with .csv  → replace extension with .db (same directory)
+      - anything else   → use as-is (assumed to be a db path already)
+    """
+    if path is None:
+        return None  # let database helpers use their own default
+    if path.endswith(".csv"):
+        return os.path.splitext(path)[0] + ".db"
+    return path
+
 
 class BarcodeRegistry:
-    """Maps barcodes to stable batch identities.
-    A barcode can change — a batch_id never does."""
+    """
+    Maps barcodes to stable batch identities using SQLite as the backing store.
 
-    def __init__(self, path="data/barcode_history.csv"):
-        self.path = path
-        try:
-            self.df = pd.read_csv(path)
-        except FileNotFoundError:
-            self.df = pd.DataFrame(columns=[
-                "barcode","batch_id","medicine_name",
-                "registered_date","superseded_date","reason_for_change"
-            ])
+    A barcode can change (supersession / repackaging / label correction).
+    A batch_id never changes.
+
+    All reads and writes go through the five parameterized helper functions in
+    database.py.  No CSV is touched at runtime.
+    """
+
+    def __init__(self, path=None):
+        """
+        Parameters
+        ----------
+        path : str or None
+            Path to a SQLite database file.  May also be a CSV path for
+            backward compatibility with older test code — the .csv extension
+            is transparently converted to .db in the same directory.
+            Defaults to the project database (data/pharmacy.db).
+        """
+        self._db_path = _db_path_from_arg(path)
+        # Ensure the schema exists (idempotent — safe to call multiple times)
+        initialise_database(self._db_path)
+
+    # ── Public API ────────────────────────────────────────────────────────────
 
     def resolve(self, barcode):
-        """Return (batch_id, status) for any barcode."""
-        active = self.df[
-            (self.df["barcode"] == barcode) &
-            (self.df["superseded_date"].isna())
-        ]
-        if not active.empty:
-            return active.iloc[0]["batch_id"], "active"
+        """
+        Return (batch_id, status) for any barcode.
 
-        old = self.df[self.df["barcode"] == barcode]
-        if not old.empty:
-            row = old.sort_values("superseded_date",ascending=False).iloc[0]
-            return row["batch_id"], "superseded"
+        status: "active" | "superseded" | "unknown"
+        Returns (None, "unknown") for empty / None input.
+        """
+        return resolve_barcode(barcode, db_path=self._db_path)
 
-        return None, "unknown"
+    def register(self, barcode, batch_id, medicine_name, reason="initial"):
+        """
+        Register a new active barcode.
 
-    def register(self, barcode, batch_id, medicine_name,
-                 reason="initial"):
-        today = datetime.today().strftime("%Y-%m-%d")
-        existing = self.df[
-            (self.df["barcode"] == barcode) &
-            (self.df["superseded_date"].isna())
-        ]
-        if not existing.empty:
-            if existing.iloc[0]["batch_id"] != batch_id:
-                raise ValueError(
-                    f"Barcode {barcode} already assigned to "
-                    f"{existing.iloc[0]['batch_id']}")
-            return
-        new_row = {
-            "barcode": barcode, "batch_id": batch_id,
-            "medicine_name": medicine_name,
-            "registered_date": today,
-            "superseded_date": None,
-            "reason_for_change": reason,
-        }
-        self.df = pd.concat([self.df, pd.DataFrame([new_row])],
-                            ignore_index=True)
-        self.df.to_csv(self.path, index=False)
+        Raises ValueError if:
+          - barcode is empty / None
+          - an active row for *barcode* already exists for a different batch_id
+
+        Idempotent: calling with the same (barcode, batch_id) twice is safe.
+        """
+        if barcode is None or not str(barcode).strip():
+            raise ValueError("Barcode cannot be empty")
+        register_barcode(
+            barcode=barcode,
+            batch_id=batch_id,
+            medicine_name=medicine_name,
+            reason=reason,
+            db_path=self._db_path,
+        )
 
     def update_barcode(self, old_bc, new_bc, reason):
-        today = datetime.today().strftime("%Y-%m-%d")
-        mask = ((self.df["barcode"] == old_bc) &
-                (self.df["superseded_date"].isna()))
-        if self.df[mask].empty:
-            raise ValueError(f"Barcode {old_bc} not found")
-        batch_id      = self.df[mask].iloc[0]["batch_id"]
-        medicine_name = self.df[mask].iloc[0]["medicine_name"]
-        self.df.loc[mask, "superseded_date"] = today
-        self.register(new_bc, batch_id, medicine_name, reason)
+        """
+        Supersede *old_bc* and register *new_bc* for the same batch.
+
+        Raises ValueError if old_bc is not currently active.
+        """
+        s_old = str(old_bc).strip()
+        s_new = str(new_bc).strip()
+
+        # Resolve old barcode to confirm it is currently active
+        batch_id, status = resolve_barcode(s_old, db_path=self._db_path)
+        if batch_id is None or status != "active":
+            raise ValueError(
+                f"Barcode {s_old!r} not found as an active entry"
+            )
+
+        # Retrieve medicine_name from the active row
+        db = self._db_path or DB_PATH
+        conn = get_connection(db)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT medicine_name FROM barcodes "
+                "WHERE barcode = ? AND superseded_date IS NULL",
+                (s_old,),
+            )
+            row = cur.fetchone()
+            medicine_name = row[0] if row else ""
+        finally:
+            conn.close()
+
+        # Mark old as superseded, then insert new active row
+        supersede_barcode(s_old, db_path=self._db_path)
+        register_barcode(
+            barcode=s_new,
+            batch_id=batch_id,
+            medicine_name=medicine_name,
+            reason=reason,
+            db_path=self._db_path,
+        )
 
     def get_all_batches(self):
-        return set(self.df["batch_id"].unique())
+        """Return the set of all distinct batch_id values in the registry."""
+        return get_all_barcode_batch_ids(db_path=self._db_path)

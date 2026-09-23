@@ -1,19 +1,53 @@
 # database.py
 import sqlite3
+import os
 import pandas as pd
 from datetime import datetime
+from typing import Optional
 
-DB_PATH = "data/pharmacy.db"
+from constants import (
+    DB_PATH,
+    MEDICINES_CSV,
+    BARCODES_CSV,
+    DECISIONS_CSV,
+    REQUIRED_STOCK_COLUMNS,
+    DECISION_COLUMNS,
+)
 
-def get_connection():
-    return sqlite3.connect(DB_PATH)
+# Re-export so existing imports from database continue to work.
+__all__ = [
+    "DB_PATH", "MEDICINES_CSV", "BARCODES_CSV", "DECISIONS_CSV",
+    "REQUIRED_STOCK_COLUMNS", "DECISION_COLUMNS",
+    "get_connection", "initialise_database", "load_stock", "save_decision",
+    "load_decisions", "import_stock_from_csv", "invalidate_stock_cache",
+    "update_stock_quantity", "export_decisions_to_csv",
+]
 
-def initialise_database():
-    """Create all tables if they do not exist."""
-    conn = get_connection()
+
+def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
+    """
+    Open an SQLite connection with directory creation and timeout.
+
+    Args:
+        db_path: Path to the SQLite file. Defaults to :data:`DB_PATH`.
+
+    Returns:
+        An open :class:`sqlite3.Connection` with a 10-second busy timeout.
+    """
+    path = db_path or DB_PATH
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    return sqlite3.connect(path, timeout=10)
+
+def initialise_database(db_path: Optional[str] = None, seed: bool = True) -> None:
+    """
+    Create tables and indexes if missing, and automatically seed initial data from CSV
+    if database tables are newly created or empty and seed is True.
+    """
+    path = db_path or DB_PATH
+    conn = get_connection(path)
     cursor = conn.cursor()
 
-    # Stock table
+    # 1. Stock table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS stock (
             batch_id TEXT PRIMARY KEY,
@@ -28,8 +62,10 @@ def initialise_database():
             branch_capacity_remaining INTEGER
         )
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_med ON stock(medicine_name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_branch ON stock(branch_id)")
 
-    # Barcode table
+    # 2. Barcode registry table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS barcodes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,73 +77,871 @@ def initialise_database():
             reason_for_change TEXT
         )
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_barcodes_bc ON barcodes(barcode)")
+    # Enforce at-most-one active (non-superseded) row per barcode value at the DB level.
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_barcodes_active
+        ON barcodes(barcode)
+        WHERE superseded_date IS NULL
+    """)
 
-    # Decision log table
+    # 3. Decision audit log table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS decisions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
-            batch_id TEXT,
+            user TEXT,
             medicine TEXT,
-            action TEXT,
+            batch_id TEXT,
+            source_branch TEXT,
             destination TEXT,
-            override_reason TEXT,
-            user TEXT
+            quantity INTEGER,
+            system_recommendation TEXT,
+            action TEXT,
+            final_decision TEXT,
+            override_reason TEXT
         )
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_decisions_batch ON decisions(batch_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_decisions_action ON decisions(action)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_decisions_user ON decisions(user)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_decisions_time ON decisions(timestamp)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_decisions_medicine ON decisions(medicine)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_decisions_source ON decisions(source_branch)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_decisions_user_action ON decisions(user, action)")
+
+    # Safe schema migration for existing databases
+    cursor.execute("PRAGMA table_info(decisions)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    migrations = [
+        ("user", "TEXT"),
+        ("source_branch", "TEXT"),
+        ("quantity", "INTEGER"),
+        ("system_recommendation", "TEXT"),
+        ("final_decision", "TEXT"),
+    ]
+    for col_name, col_type in migrations:
+        if col_name not in existing_cols:
+            cursor.execute(f"ALTER TABLE decisions ADD COLUMN {col_name} {col_type}")
 
     conn.commit()
+
+    # Automatic initial import from CSV if tables are empty
+    if seed:
+        _seed_if_empty(conn)
+
     conn.close()
 
-def load_stock():
-    """Load stock data as a pandas DataFrame."""
-    conn = get_connection()
-    df = pd.read_sql("SELECT * FROM stock", conn)
-    conn.close()
-    return df
+def _seed_if_empty(conn):
+    """Import CSV data into tables if they are empty."""
+    cursor = conn.cursor()
+
+    # Seed stock if empty using validated safe row insertion
+    cursor.execute("SELECT COUNT(*) FROM stock")
+    if cursor.fetchone()[0] == 0 and os.path.exists(MEDICINES_CSV):
+        try:
+            df_stock = pd.read_csv(MEDICINES_CSV)
+            missing = [c for c in REQUIRED_STOCK_COLUMNS if c not in df_stock.columns]
+            if not missing:
+                for _, row in df_stock.iterrows():
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO stock (
+                            batch_id, medicine_name, category, branch_id,
+                            branch_name, quantity, expiry_date, unit_cost_gbp,
+                            demand_per_week, branch_capacity_remaining
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        str(row["batch_id"]).strip(),
+                        str(row["medicine_name"]).strip(),
+                        str(row.get("category", "General")),
+                        str(row["branch_id"]).strip(),
+                        str(row.get("branch_name", row["branch_id"])),
+                        int(row["quantity"]),
+                        str(row["expiry_date"]).strip(),
+                        float(row["unit_cost_gbp"]),
+                        int(row["demand_per_week"]),
+                        int(row["branch_capacity_remaining"]),
+                    ))
+                conn.commit()
+        except Exception as e:
+            print(f"Warning: Could not seed stock from {MEDICINES_CSV}: {e}")
+
+    # Seed barcodes if empty
+    cursor.execute("SELECT COUNT(*) FROM barcodes")
+    if cursor.fetchone()[0] == 0 and os.path.exists(BARCODES_CSV):
+        try:
+            df_bc = pd.read_csv(BARCODES_CSV, dtype={"barcode": str})
+            df_bc.to_sql("barcodes", conn, if_exists="append", index=False)
+            conn.commit()
+        except Exception as e:
+            print(f"Warning: Could not seed barcodes from {BARCODES_CSV}: {e}")
+
+    # Seed historical decisions if table is empty and CSV exists
+    cursor.execute("SELECT COUNT(*) FROM decisions")
+    if cursor.fetchone()[0] == 0 and os.path.exists(DECISIONS_CSV) and os.path.getsize(DECISIONS_CSV) > 0:
+        try:
+            df_dec = pd.read_csv(DECISIONS_CSV)
+            if not df_dec.empty:
+                for col in DECISION_COLUMNS:
+                    if col not in df_dec.columns:
+                        df_dec[col] = 0 if col == "quantity" else ""
+                if "final_decision" in df_dec.columns and "action" in df_dec.columns:
+                    df_dec["final_decision"] = df_dec["final_decision"].fillna(df_dec["action"])
+                cols = [c for c in DECISION_COLUMNS if c in df_dec.columns]
+                df_dec[cols].to_sql("decisions", conn, if_exists="append", index=False)
+                conn.commit()
+        except Exception as e:
+            print(f"Warning: Could not seed decisions from {DECISIONS_CSV}: {e}")
+
+def load_stock(db_path=None):
+    """
+    Load stock data from SQLite as the primary operational data store.
+    Falls back gracefully to CSV if SQLite is unavailable or empty.
+    """
+    path = db_path or DB_PATH
+    try:
+        if not os.path.exists(path):
+            initialise_database(path)
+
+        conn = get_connection(path)
+        df = pd.read_sql("SELECT * FROM stock", conn)
+        conn.close()
+
+        if df.empty and path == DB_PATH:
+            # Attempt re-seed on default database
+            initialise_database(path, seed=True)
+            conn = get_connection(path)
+            df = pd.read_sql("SELECT * FROM stock", conn)
+            conn.close()
+
+        if not df.empty or path != DB_PATH:
+            return df
+    except Exception as e:
+        print(f"SQLite load_stock warning: {e}. Falling back to CSV.")
+
+    # Graceful fallback to CSV
+    if os.path.exists(MEDICINES_CSV):
+        return pd.read_csv(MEDICINES_CSV)
+
+    return pd.DataFrame(columns=[
+        "batch_id", "medicine_name", "category", "branch_id",
+        "branch_name", "quantity", "expiry_date", "unit_cost_gbp",
+        "demand_per_week", "branch_capacity_remaining"
+    ])
+
+def invalidate_stock_cache():
+    """
+    Invalidate any active inventory caches (e.g. Streamlit cache_data or in-memory caches).
+    Safe to call in both Streamlit runtime and non-Streamlit environments (tests/CLI).
+    """
+    try:
+        import streamlit as st
+        if hasattr(st, "cache_data") and hasattr(st.cache_data, "clear"):
+            st.cache_data.clear()
+    except Exception:
+        pass
+
+clear_stock_cache = invalidate_stock_cache
+
+
+def update_stock_quantity(batch_id, new_quantity, db_path=None):
+    """
+    Update the inventory quantity for an existing batch in SQLite.
+    Validates the quantity (rejects negative numbers) and invalidates caches.
+
+    Parameters
+    ----------
+    batch_id : str
+        The unique batch identifier.
+    new_quantity : int or float
+        The new quantity (must be >= 0).
+    db_path : str, optional
+        Path to SQLite database file.
+
+    Returns
+    -------
+    bool
+        True if an existing record was updated, False otherwise.
+    """
+    if batch_id is None or not str(batch_id).strip():
+        raise ValueError("batch_id cannot be empty")
+
+    try:
+        qty_int = int(float(new_quantity))
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid quantity: {new_quantity}")
+
+    if qty_int < 0:
+        raise ValueError("Quantity cannot be negative")
+
+    path = db_path or DB_PATH
+    conn = get_connection(path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE stock SET quantity = ? WHERE batch_id = ?",
+            (qty_int, str(batch_id).strip())
+        )
+        conn.commit()
+        updated = cur.rowcount > 0
+    finally:
+        conn.close()
+
+    if updated:
+        invalidate_stock_cache()
+
+    return updated
 
 def save_decision(batch_id, medicine, action,
                   destination="", override_reason="",
-                  user="pharmacist"):
-    """Save a decision to the database."""
-    conn = get_connection()
-    conn.execute("""
-        INSERT INTO decisions
-        (timestamp, batch_id, medicine, action,
-         destination, override_reason, user)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        batch_id, medicine, action,
-        destination, override_reason, user
-    ))
-    conn.commit()
-    conn.close()
+                  user="pharmacist", source_branch="",
+                  quantity=0, system_recommendation="",
+                  final_decision="", db_path=None, csv_path=None):
+    """
+    Save an operational decision to SQLite (the sole authoritative audit log).
 
-def load_decisions():
-    """Load all decisions as a pandas DataFrame."""
-    conn = get_connection()
-    df = pd.read_sql("SELECT * FROM decisions", conn)
-    conn.close()
-    return df
+    SQLite is the only persistent store for runtime decisions.
+    CSV files are NOT written during normal operations; use
+    export_decisions_to_csv() to produce an audit export on demand.
 
-def import_from_csv():
-    """Import existing CSV data into the database."""
-    conn = get_connection()
+    Parameters
+    ----------
+    csv_path : str or None
+        If provided, the decision is also written to this CSV file.
+        This is used exclusively for test isolation (temporary files).
+        In normal production use, leave as None.
+    """
+    path = db_path or DB_PATH
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    stock_df = pd.read_csv("data/medicines.csv")
-    stock_df.to_sql("stock", conn,
-                    if_exists="replace", index=False)
+    # Consistent action normalization (CONFIRMED, OVERRIDDEN, MANUALLY_REVIEWED)
+    std_action = str(action).strip().upper()
+    if not final_decision:
+        final_decision = std_action
+    else:
+        final_decision = str(final_decision).strip().upper()
 
-    barcode_df = pd.read_csv("data/barcode_history.csv")
-    barcode_df.to_sql("barcodes", conn,
-                      if_exists="replace", index=False)
+    try:
+        qty_int = int(float(quantity))
+    except (ValueError, TypeError):
+        qty_int = 0
 
-    conn.commit()
-    conn.close()
-    print("CSV data imported into database successfully")
+    # Primary write to SQLite — sole source of truth
+    try:
+        if not os.path.exists(path):
+            initialise_database(path)
+
+        conn = get_connection(path)
+        with conn:
+            conn.execute("""
+                INSERT INTO decisions
+                (timestamp, user, medicine, batch_id, source_branch,
+                 destination, quantity, system_recommendation, action,
+                 final_decision, override_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                now_str, user, medicine, batch_id, source_branch,
+                destination, qty_int, system_recommendation, std_action,
+                final_decision, override_reason
+            ))
+        conn.close()
+        invalidate_stock_cache()
+    except Exception as e:
+        print(f"Error saving decision to SQLite: {e}")
+
+    # Optional: write to a CSV file only when explicitly requested (test isolation)
+    if csv_path:
+        try:
+            new_row = {
+                "timestamp":             now_str,
+                "user":                  user,
+                "medicine":              medicine,
+                "batch_id":              batch_id,
+                "source_branch":         source_branch,
+                "destination":           destination,
+                "quantity":              qty_int,
+                "system_recommendation": system_recommendation,
+                "action":                std_action,
+                "final_decision":        final_decision,
+                "override_reason":       override_reason,
+            }
+            df_row = pd.DataFrame([new_row])
+            file_exists = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0
+            df_row.to_csv(csv_path, mode="a", header=not file_exists, index=False)
+        except Exception as e:
+            print(f"Warning: Could not write decision to {csv_path}: {e}")
+
+def load_decisions(db_path=None):
+    """
+    Load all operational decisions from SQLite — the sole authoritative audit log.
+
+    Returns a DataFrame with all DECISION_COLUMNS. Returns an empty
+    DataFrame (with correct columns) when no decisions have been recorded.
+    """
+    path = db_path or DB_PATH
+    try:
+        if not os.path.exists(path):
+            initialise_database(path)
+
+        conn = get_connection(path)
+        df = pd.read_sql("SELECT * FROM decisions ORDER BY id ASC", conn)
+        conn.close()
+
+        for col in DECISION_COLUMNS:
+            if col not in df.columns:
+                df[col] = 0 if col == "quantity" else ""
+        if "final_decision" in df.columns and "action" in df.columns:
+            df["final_decision"] = df["final_decision"].fillna(df["action"])
+        cols = [c for c in DECISION_COLUMNS if c in df.columns]
+        return df[cols].fillna("")
+    except Exception as e:
+        print(f"Warning reading decisions from SQLite: {e}")
+
+    return pd.DataFrame(columns=DECISION_COLUMNS)
+
+
+def export_decisions_to_csv(csv_path=None, db_path=None):
+    """
+    Export all decisions from SQLite to a CSV file on demand.
+
+    This is the only sanctioned way to produce a CSV audit export.
+    Normal runtime operations never write to CSV directly.
+
+    Parameters
+    ----------
+    csv_path : str
+        Destination CSV file path. Defaults to DECISIONS_CSV.
+    db_path : str or None
+        SQLite database path. Defaults to DB_PATH.
+
+    Returns
+    -------
+    str
+        Absolute path of the written CSV file.
+    """
+    out_path = csv_path or DECISIONS_CSV
+    df = load_decisions(db_path=db_path)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    df.to_csv(out_path, index=False)
+    return os.path.abspath(out_path)
+
+def validate_stock_row(row, existing_db_batches=None, seen_in_file=None, update_existing=False):
+    """
+    Validate a single row (dict-like or Series) for stock table import.
+
+    Returns:
+      (is_valid: bool, error_message: str | None, cleaned_data: dict | None, is_update: bool)
+    """
+    errors = []
+
+    # 1. batch_id
+    raw_batch = row.get("batch_id")
+    if raw_batch is None or pd.isna(raw_batch) or not str(raw_batch).strip():
+        errors.append("batch_id cannot be empty")
+        batch_id = ""
+    else:
+        batch_id = str(raw_batch).strip()
+        if seen_in_file is not None and batch_id in seen_in_file:
+            errors.append(f"duplicate batch_id '{batch_id}' found in CSV")
+
+    is_update = False
+    if batch_id and existing_db_batches is not None and batch_id in existing_db_batches:
+        if update_existing:
+            is_update = True
+        else:
+            errors.append(
+                f"batch_id '{batch_id}' already exists in database (use update_existing=True to overwrite)"
+            )
+
+    # 2. medicine_name
+    raw_med = row.get("medicine_name")
+    if raw_med is None or pd.isna(raw_med) or not str(raw_med).strip():
+        errors.append("medicine_name cannot be empty")
+        medicine_name = ""
+    else:
+        medicine_name = str(raw_med).strip()
+
+    # 3. branch_id
+    raw_branch = row.get("branch_id")
+    if raw_branch is None or pd.isna(raw_branch) or not str(raw_branch).strip():
+        errors.append("branch_id cannot be empty")
+        branch_id = ""
+    else:
+        branch_id = str(raw_branch).strip()
+
+    # 4. quantity
+    raw_qty = row.get("quantity")
+    quantity = None
+    if raw_qty is None or pd.isna(raw_qty):
+        errors.append("quantity cannot be empty")
+    else:
+        try:
+            f_qty = float(raw_qty)
+            if not f_qty.is_integer():
+                errors.append("quantity must be an integer")
+            elif f_qty < 0:
+                errors.append("quantity cannot be negative")
+            else:
+                quantity = int(f_qty)
+        except (ValueError, TypeError):
+            errors.append(f"invalid quantity '{raw_qty}': must be a non-negative integer")
+
+    # 5. expiry_date
+    raw_exp = row.get("expiry_date")
+    expiry_date = ""
+    if raw_exp is None or pd.isna(raw_exp) or not str(raw_exp).strip():
+        errors.append("expiry_date cannot be empty")
+    else:
+        s_exp = str(raw_exp).strip()
+        try:
+            parsed = datetime.strptime(s_exp, "%Y-%m-%d")
+            expiry_date = parsed.strftime("%Y-%m-%d")
+        except ValueError:
+            errors.append(f"invalid expiry_date '{s_exp}': must be YYYY-MM-DD")
+
+    # 6. unit_cost_gbp
+    raw_cost = row.get("unit_cost_gbp")
+    unit_cost_gbp = None
+    if raw_cost is None or pd.isna(raw_cost):
+        errors.append("unit_cost_gbp cannot be empty")
+    else:
+        try:
+            f_cost = float(raw_cost)
+            if f_cost < 0:
+                errors.append("unit_cost_gbp cannot be negative")
+            else:
+                unit_cost_gbp = round(f_cost, 4)
+        except (ValueError, TypeError):
+            errors.append(f"invalid unit_cost_gbp '{raw_cost}': must be a non-negative number")
+
+    # 7. demand_per_week
+    raw_dem = row.get("demand_per_week")
+    demand_per_week = None
+    if raw_dem is None or pd.isna(raw_dem):
+        errors.append("demand_per_week cannot be empty")
+    else:
+        try:
+            f_dem = float(raw_dem)
+            if not f_dem.is_integer():
+                errors.append("demand_per_week must be an integer")
+            elif f_dem < 0:
+                errors.append("demand_per_week cannot be negative")
+            else:
+                demand_per_week = int(f_dem)
+        except (ValueError, TypeError):
+            errors.append(f"invalid demand_per_week '{raw_dem}': must be a non-negative integer")
+
+    # 8. branch_capacity_remaining
+    raw_cap = row.get("branch_capacity_remaining")
+    branch_capacity_remaining = None
+    if raw_cap is None or pd.isna(raw_cap):
+        errors.append("branch_capacity_remaining cannot be empty")
+    else:
+        try:
+            f_cap = float(raw_cap)
+            if not f_cap.is_integer():
+                errors.append("branch_capacity_remaining must be an integer")
+            elif f_cap < 0:
+                errors.append("branch_capacity_remaining cannot be negative")
+            else:
+                branch_capacity_remaining = int(f_cap)
+        except (ValueError, TypeError):
+            errors.append(f"invalid branch_capacity_remaining '{raw_cap}': must be a non-negative integer")
+
+    if errors:
+        return False, "; ".join(errors), None, is_update
+
+    category = str(row.get("category", "General")).strip() if not pd.isna(row.get("category")) else "General"
+    branch_name = str(row.get("branch_name", branch_id)).strip() if not pd.isna(row.get("branch_name")) else branch_id
+
+    cleaned_data = {
+        "batch_id": batch_id,
+        "medicine_name": medicine_name,
+        "category": category,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
+        "quantity": quantity,
+        "expiry_date": expiry_date,
+        "unit_cost_gbp": unit_cost_gbp,
+        "demand_per_week": demand_per_week,
+        "branch_capacity_remaining": branch_capacity_remaining,
+    }
+    return True, None, cleaned_data, is_update
+
+
+def import_stock_from_csv(csv_path=None, db_path=None, update_existing=False, force=False, strict=False):
+    """
+    Safely import stock records from CSV into SQLite with column and row-level validation.
+
+    Parameters:
+      csv_path: Path to CSV file (defaults to MEDICINES_CSV)
+      db_path: Path to SQLite DB (defaults to DB_PATH)
+      update_existing: If True, updates records whose batch_id already exists in SQLite.
+                       If False, preserves existing records and rejects duplicate batch_ids.
+      force: If True, clears existing stock table prior to import within the transaction.
+      strict: If True, any validation rejection causes the entire import to abort without writing.
+
+    Returns:
+      Dictionary containing import summary:
+      {
+          "success": bool,
+          "records_processed": int,
+          "records_inserted": int,
+          "records_updated": int,
+          "records_rejected": int,
+          "errors": list[str],
+          "warnings": list[str],
+          "processed": int,
+          "inserted": int,
+          "updated": int,
+          "rejected": int,
+      }
+    """
+    summary = {
+        "success": False,
+        "records_processed": 0,
+        "records_inserted": 0,
+        "records_updated": 0,
+        "records_rejected": 0,
+        "errors": [],
+        "warnings": [],
+        "processed": 0,
+        "inserted": 0,
+        "updated": 0,
+        "rejected": 0,
+    }
+
+    csv_file = csv_path or MEDICINES_CSV
+    if not os.path.exists(csv_file):
+        summary["errors"].append(f"CSV file not found: {csv_file}")
+        return summary
+
+    try:
+        df = pd.read_csv(csv_file)
+    except Exception as e:
+        summary["errors"].append(f"Failed to read CSV file: {e}")
+        return summary
+
+    # 1. Validate required CSV columns
+    missing_cols = [col for col in REQUIRED_STOCK_COLUMNS if col not in df.columns]
+    if missing_cols:
+        summary["errors"].append(f"Missing required column(s): {', '.join(sorted(missing_cols))}")
+        return summary
+
+    path = db_path or DB_PATH
+    initialise_database(path, seed=False)
+
+    # 2. Fetch existing DB batch IDs
+    conn = get_connection(path)
+    try:
+        cur = conn.cursor()
+        if force:
+            existing_db_batches = set()
+        else:
+            cur.execute("SELECT batch_id FROM stock")
+            existing_db_batches = {row[0] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+    # 3. Validate rows
+    to_insert = []
+    to_update = []
+    seen_in_file = set()
+
+    for idx, row in df.iterrows():
+        summary["records_processed"] += 1
+        is_valid, err, cleaned, is_update = validate_stock_row(
+            row,
+            existing_db_batches=existing_db_batches,
+            seen_in_file=seen_in_file,
+            update_existing=update_existing,
+        )
+        if not is_valid:
+            summary["records_rejected"] += 1
+            summary["errors"].append(f"Row {idx + 1}: {err}")
+        else:
+            b_id = cleaned["batch_id"]
+            seen_in_file.add(b_id)
+            if is_update:
+                to_update.append(cleaned)
+            else:
+                to_insert.append(cleaned)
+                existing_db_batches.add(b_id)
+
+    if strict and summary["records_rejected"] > 0:
+        summary["errors"].append(
+            f"Strict mode aborted import due to {summary['records_rejected']} validation failure(s)."
+        )
+        summary["processed"] = summary["records_processed"]
+        summary["rejected"] = summary["records_rejected"]
+        return summary
+
+    # 4. Database Transaction
+    conn = get_connection(path)
+    try:
+        with conn:
+            cur = conn.cursor()
+            if force:
+                cur.execute("DELETE FROM stock")
+
+            for item in to_insert:
+                cur.execute("""
+                    INSERT INTO stock (
+                        batch_id, medicine_name, category, branch_id,
+                        branch_name, quantity, expiry_date, unit_cost_gbp,
+                        demand_per_week, branch_capacity_remaining
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    item["batch_id"], item["medicine_name"], item["category"],
+                    item["branch_id"], item["branch_name"], item["quantity"],
+                    item["expiry_date"], item["unit_cost_gbp"],
+                    item["demand_per_week"], item["branch_capacity_remaining"]
+                ))
+                summary["records_inserted"] += 1
+
+            for item in to_update:
+                cur.execute("""
+                    UPDATE stock SET
+                        medicine_name = ?,
+                        category = ?,
+                        branch_id = ?,
+                        branch_name = ?,
+                        quantity = ?,
+                        expiry_date = ?,
+                        unit_cost_gbp = ?,
+                        demand_per_week = ?,
+                        branch_capacity_remaining = ?
+                    WHERE batch_id = ?
+                """, (
+                    item["medicine_name"], item["category"], item["branch_id"],
+                    item["branch_name"], item["quantity"], item["expiry_date"],
+                    item["unit_cost_gbp"], item["demand_per_week"],
+                    item["branch_capacity_remaining"], item["batch_id"]
+                ))
+                summary["records_updated"] += 1
+
+        summary["success"] = True
+        if summary["records_inserted"] > 0 or summary["records_updated"] > 0:
+            invalidate_stock_cache()
+    except Exception as exc:
+        summary["success"] = False
+        summary["errors"].append(f"Database transaction error: {exc}")
+        summary["records_inserted"] = 0
+        summary["records_updated"] = 0
+    finally:
+        conn.close()
+
+    summary["processed"] = summary["records_processed"]
+    summary["inserted"] = summary["records_inserted"]
+    summary["updated"] = summary["records_updated"]
+    summary["rejected"] = summary["records_rejected"]
+    return summary
+
+
+def import_from_csv(db_path=None, csv_path=None, force=False, update_existing=False):
+    """
+    Explicitly import CSV data into SQLite tables with validation and transactions.
+    Preserves existing records unless update_existing=True or force=True.
+
+    If db_path looks like a CSV file and csv_path is None, swaps them for convenience.
+    """
+    if db_path and str(db_path).lower().endswith(".csv") and csv_path is None:
+        csv_path = db_path
+        db_path = None
+
+    path = db_path or DB_PATH
+    initialise_database(path)
+
+    # 1. Safely import stock using validated transactional pipeline
+    summary = import_stock_from_csv(
+        csv_path=csv_path or MEDICINES_CSV,
+        db_path=path,
+        update_existing=update_existing,
+        force=force,
+    )
+
+    # 2. Safely import barcodes if barcodes table needs populating or force=True
+    if os.path.exists(BARCODES_CSV):
+        conn = get_connection(path)
+        try:
+            with conn:
+                cur = conn.cursor()
+                if force:
+                    cur.execute("DELETE FROM barcodes")
+                cur.execute("SELECT COUNT(*) FROM barcodes")
+                if cur.fetchone()[0] == 0:
+                    df_bc = pd.read_csv(BARCODES_CSV, dtype={"barcode": str})
+                    for _, row in df_bc.iterrows():
+                        bc = str(row.get("barcode", "")).strip()
+                        if bc:
+                            cur.execute("""
+                                INSERT OR IGNORE INTO barcodes
+                                (barcode, batch_id, medicine_name, registered_date, superseded_date, reason_for_change)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            """, (
+                                bc,
+                                str(row.get("batch_id", "")).strip(),
+                                str(row.get("medicine_name", "")).strip(),
+                                str(row.get("registered_date", "")).strip(),
+                                None if pd.isna(row.get("superseded_date")) or not str(row.get("superseded_date")).strip() else str(row.get("superseded_date")).strip(),
+                                str(row.get("reason_for_change", "")).strip(),
+                            ))
+        except Exception as e:
+            summary["warnings"].append(f"Barcode import notice: {e}")
+        finally:
+            conn.close()
+
+    return summary
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Barcode-specific helpers (used by BarcodeRegistry as SQLite backend)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def register_barcode(barcode, batch_id, medicine_name,
+                     reason="initial", db_path=None):
+    """
+    Insert a new active barcode row into SQLite.
+
+    Raises ValueError if:
+      - barcode is empty / None
+      - an active row for *barcode* already exists for a different batch_id
+
+    If an identical active row already exists (same barcode AND same batch_id)
+    the call is idempotent — returns without raising.
+
+    Uses parameterized SQL; no user input is ever interpolated into a query.
+    """
+    if not barcode or not str(barcode).strip():
+        raise ValueError("Barcode cannot be empty")
+
+    s_barcode = str(barcode).strip()
+    path = db_path or DB_PATH
+    conn = get_connection(path)
+    try:
+        cursor = conn.cursor()
+        # Check for an existing active row first
+        cursor.execute(
+            "SELECT batch_id FROM barcodes "
+            "WHERE barcode = ? AND superseded_date IS NULL",
+            (s_barcode,),
+        )
+        existing = cursor.fetchone()
+        if existing is not None:
+            if existing[0] == batch_id:
+                return  # idempotent — already registered to the same batch
+            raise ValueError(
+                f"Barcode {s_barcode!r} is already active for batch "
+                f"{existing[0]!r}; cannot reassign to {batch_id!r}"
+            )
+
+        today = datetime.today().strftime("%Y-%m-%d")
+        cursor.execute(
+            "INSERT INTO barcodes "
+            "(barcode, batch_id, medicine_name, "
+            " registered_date, superseded_date, reason_for_change) "
+            "VALUES (?, ?, ?, ?, NULL, ?)",
+            (s_barcode, batch_id, medicine_name, today, reason),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def supersede_barcode(barcode, superseded_date=None, db_path=None):
+    """
+    Mark the active row for *barcode* as superseded.
+    Raises ValueError if no active row is found.
+    """
+    s_barcode = str(barcode).strip()
+    today = superseded_date or datetime.today().strftime("%Y-%m-%d")
+    path = db_path or DB_PATH
+    conn = get_connection(path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE barcodes SET superseded_date = ? "
+            "WHERE barcode = ? AND superseded_date IS NULL",
+            (today, s_barcode),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(
+                f"Barcode {s_barcode!r} not found as an active entry"
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def resolve_barcode(barcode, db_path=None):
+    """
+    Return (batch_id, status) for *barcode* from the SQLite barcodes table.
+
+    status: "active" | "superseded" | "unknown"
+    Returns (None, "unknown") for empty / None input.
+    """
+    if barcode is None or not str(barcode).strip():
+        return None, "unknown"
+
+    s_barcode = str(barcode).strip()
+    path = db_path or DB_PATH
+    conn = get_connection(path)
+    try:
+        cursor = conn.cursor()
+        # Active row first
+        cursor.execute(
+            "SELECT batch_id FROM barcodes "
+            "WHERE barcode = ? AND superseded_date IS NULL",
+            (s_barcode,),
+        )
+        row = cursor.fetchone()
+        if row is not None:
+            return row[0], "active"
+        # Most-recently-superseded row
+        cursor.execute(
+            "SELECT batch_id FROM barcodes "
+            "WHERE barcode = ? "
+            "ORDER BY superseded_date DESC LIMIT 1",
+            (s_barcode,),
+        )
+        row = cursor.fetchone()
+        if row is not None:
+            return row[0], "superseded"
+        return None, "unknown"
+    finally:
+        conn.close()
+
+
+def load_barcodes(db_path=None):
+    """Return the full barcodes table as a DataFrame."""
+    path = db_path or DB_PATH
+    _cols = [
+        "id", "barcode", "batch_id", "medicine_name",
+        "registered_date", "superseded_date", "reason_for_change",
+    ]
+    try:
+        conn = get_connection(path)
+        try:
+            return pd.read_sql("SELECT * FROM barcodes", conn)
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"Warning: load_barcodes error: {exc}")
+        return pd.DataFrame(columns=_cols)
+
+
+def get_all_barcode_batch_ids(db_path=None):
+    """Return the set of all distinct batch_id values in the barcodes table."""
+    path = db_path or DB_PATH
+    conn = get_connection(path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT batch_id FROM barcodes")
+        return {row[0] for row in cursor.fetchall()}
+    finally:
+        conn.close()
+
 
 if __name__ == "__main__":
     initialise_database()
-    import_from_csv()
-    print("Database ready at data/pharmacy.db")
+    print("Database verified and ready at data/pharmacy.db")
