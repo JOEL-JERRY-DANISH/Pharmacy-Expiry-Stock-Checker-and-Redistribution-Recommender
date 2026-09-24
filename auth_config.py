@@ -29,7 +29,6 @@ SALT_BYTES = 16  # 16 bytes = 128 bits entropy -> 32 hex chars
 
 # In-memory caches to avoid re-hashing plaintext on every credential query
 # and to store seamlessly migrated credentials during runtime sessions.
-_PLAINTEXT_HASH_CACHE: Dict[str, str] = {}
 _MIGRATED_HASHES: Dict[str, str] = {}
 
 
@@ -193,10 +192,7 @@ def _resolve_hash(secrets_key: str, env_hash_key: str, env_plain_key: str, usern
 
     plain = os.getenv(env_plain_key, "")
     if plain:
-        if plain not in _PLAINTEXT_HASH_CACHE:
-            _PLAINTEXT_HASH_CACHE[plain] = hash_password(plain)
-        return _PLAINTEXT_HASH_CACHE[plain]
-
+        return hash_password(plain)
     return ""
 
 

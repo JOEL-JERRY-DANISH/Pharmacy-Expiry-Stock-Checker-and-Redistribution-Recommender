@@ -256,6 +256,25 @@ class TestLogManager(unittest.TestCase):
 # New tests — Authentication (hashed password check)
 # ─────────────────────────────────────────────────────────────────────────────
 class TestAuthentication(unittest.TestCase):
+    _orig_p1_hash = None
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import auth_config
+        cls._orig_p1_hash = os.environ.get("PHARMACIST1_PASSWORD_HASH")
+        os.environ["PHARMACIST1_PASSWORD_HASH"] = auth_config.hash_password("pharmacy123")
+        auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+
+    @classmethod
+    def tearDownClass(cls):
+        import auth_config
+        auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+        if cls._orig_p1_hash is not None:
+            os.environ["PHARMACIST1_PASSWORD_HASH"] = cls._orig_p1_hash
+        else:
+            os.environ.pop("PHARMACIST1_PASSWORD_HASH", None)
+        super().tearDownClass()
 
     def _check(self, username, password):
         """Replicate the check_password logic from app.py."""
@@ -2150,6 +2169,25 @@ class TestComprehensiveAutomatedSuite(unittest.TestCase):
     zero-demand, multi-branch, multi-batch, database CRUD, duplicate batches,
     barcode lifecycle, authentication, decision audit, and input validation.
     """
+    _orig_p1_hash = None
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import auth_config
+        cls._orig_p1_hash = os.environ.get("PHARMACIST1_PASSWORD_HASH")
+        os.environ["PHARMACIST1_PASSWORD_HASH"] = auth_config.hash_password("pharmacy123")
+        auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+
+    @classmethod
+    def tearDownClass(cls):
+        import auth_config
+        auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+        if cls._orig_p1_hash is not None:
+            os.environ["PHARMACIST1_PASSWORD_HASH"] = cls._orig_p1_hash
+        else:
+            os.environ.pop("PHARMACIST1_PASSWORD_HASH", None)
+        super().tearDownClass()
 
     def setUp(self):
         self.tmp_dir = tempfile.TemporaryDirectory()
