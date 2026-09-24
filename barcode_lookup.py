@@ -99,6 +99,7 @@ def lookup_barcode(barcode, registry=None, stock_df=None):
                 "score":                 score,
                 "reason":                best["reason"],
                 "confidence":            best["confidence"],
+                "is_high_impact":        high_impact,
                 "requires_confirmation": high_impact,
                 "destinations":          dests,
             }
@@ -113,7 +114,8 @@ def lookup_barcode(barcode, registry=None, stock_df=None):
                 "score":                 score,
                 "reason":                msg,
                 "confidence":            "LOW",
-                "requires_confirmation": False,
+                "is_high_impact":        high_impact,
+                "requires_confirmation": high_impact,
                 "destinations":          [],
             }
 

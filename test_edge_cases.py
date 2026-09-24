@@ -11,6 +11,10 @@ from recommender import (
     find_destinations,
     calculate_need_score,
     calculate_destination_need,
+    days_to_expiry,
+    urgency_label,
+    validate_numeric_field,
+    validate_batch_numerics,
 )
 from barcode_registry import BarcodeRegistry
 from barcode_lookup import lookup_barcode
@@ -252,14 +256,34 @@ class TestLogManager(unittest.TestCase):
 # New tests — Authentication (hashed password check)
 # ─────────────────────────────────────────────────────────────────────────────
 class TestAuthentication(unittest.TestCase):
+    _orig_p1_hash = None
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import auth_config
+        cls._orig_p1_hash = os.environ.get("PHARMACIST1_PASSWORD_HASH")
+        os.environ["PHARMACIST1_PASSWORD_HASH"] = auth_config.hash_password("pharmacy123")
+        auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+
+    @classmethod
+    def tearDownClass(cls):
+        import auth_config
+        auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+        if cls._orig_p1_hash is not None:
+            os.environ["PHARMACIST1_PASSWORD_HASH"] = cls._orig_p1_hash
+        else:
+            os.environ.pop("PHARMACIST1_PASSWORD_HASH", None)
+        super().tearDownClass()
 
     def _check(self, username, password):
         """Replicate the check_password logic from app.py."""
+        from auth_config import verify_password
         users = CREDENTIALS["usernames"]
         if username not in users:
             return False, None
-        hashed = hashlib.sha256(password.encode()).hexdigest()
-        if users[username]["password"] == hashed:
+        stored_hash = users[username].get("password", "")
+        if verify_password(password, stored_hash):
             return True, users[username]
         return False, None
 
@@ -1526,13 +1550,13 @@ class TestDestinationSelection(unittest.TestCase):
 
     def test_85_insufficient_capacity_never_recommended(self):
         """Branches lacking sufficient remaining capacity are safely excluded even if shortage is severe."""
-        source = make_row(5, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
 
         # Branch C has urgent stock need (stock 0, demand 50) but only 50 units capacity (< 100 required)
         dest_c_no_cap = make_row(100, 0, 50, 50, branch_id="BR_NO_CAP", branch_name="Full Branch")
 
-        # Branch D has moderate demand (25/wk) and ample capacity (500 units >= 100)
-        dest_d_viable = make_row(100, 25, 25, 500, branch_id="BR_VIABLE", branch_name="Viable Branch")
+        # Branch D has moderate demand (45/wk) and ample capacity (500 units >= 100)
+        dest_d_viable = make_row(100, 5, 45, 500, branch_id="BR_VIABLE", branch_name="Viable Branch")
 
         df = pd.DataFrame([source, dest_c_no_cap, dest_d_viable])
         recs = generate_recommendations(df)
@@ -1583,7 +1607,7 @@ class TestBatchSplitting(unittest.TestCase):
 
     def test_87_one_destination_allocation(self):
         """When a single destination has sufficient capacity and high need, entire batch is allocated to 1 destination."""
-        source = make_row(5, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
         dest_a = make_row(100, 20, 40, 500, branch_id="BR_A", branch_name="Branch HighNeed")
         dest_b = make_row(100, 100, 20, 500, branch_id="BR_B", branch_name="Branch LowerNeed")
 
@@ -1610,7 +1634,7 @@ class TestBatchSplitting(unittest.TestCase):
 
     def test_88_two_destinations_batch_split(self):
         """When the highest-need branch has limited capacity (< source qty), batch is divided across two branches."""
-        source = make_row(5, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
 
         # Destination 1: capacity 60 (< 100), high need (low stock, high demand)
         dest_1 = make_row(100, 5, 40, 60, branch_id="BR_D1", branch_name="Branch Dest 1")
@@ -1649,7 +1673,7 @@ class TestBatchSplitting(unittest.TestCase):
 
     def test_89_three_destinations_batch_split(self):
         """When the top 2 destinations have limited capacity, batch is divided across 3 destination branches."""
-        source = make_row(5, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
 
         # Branch 1: capacity 40 (< 100)
         b1 = make_row(100, 0, 40, 40, branch_id="BR_1", branch_name="Branch 1")
@@ -1683,7 +1707,7 @@ class TestBatchSplitting(unittest.TestCase):
 
     def test_90_limited_capacity_respected(self):
         """A destination must never be recommended more units than its remaining capacity."""
-        source = make_row(5, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
 
         # Branch A has urgent need (stock 0, demand 50) but only 30 capacity
         b_a = make_row(100, 0, 50, 30, branch_id="BR_A", branch_name="Branch A")
@@ -2145,6 +2169,25 @@ class TestComprehensiveAutomatedSuite(unittest.TestCase):
     zero-demand, multi-branch, multi-batch, database CRUD, duplicate batches,
     barcode lifecycle, authentication, decision audit, and input validation.
     """
+    _orig_p1_hash = None
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import auth_config
+        cls._orig_p1_hash = os.environ.get("PHARMACIST1_PASSWORD_HASH")
+        os.environ["PHARMACIST1_PASSWORD_HASH"] = auth_config.hash_password("pharmacy123")
+        auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+
+    @classmethod
+    def tearDownClass(cls):
+        import auth_config
+        auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+        if cls._orig_p1_hash is not None:
+            os.environ["PHARMACIST1_PASSWORD_HASH"] = cls._orig_p1_hash
+        else:
+            os.environ.pop("PHARMACIST1_PASSWORD_HASH", None)
+        super().tearDownClass()
 
     def setUp(self):
         self.tmp_dir = tempfile.TemporaryDirectory()
@@ -2633,3 +2676,1644 @@ class TestComprehensiveAutomatedSuite(unittest.TestCase):
         valid_c, err_c, _, _ = validate_stock_row(bad_cost)
         self.assertFalse(valid_c)
         self.assertTrue("cost" in str(err_c).lower() or "negative" in str(err_c).lower())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 1: Destination Allocation Bug Regression Tests
+# ─────────────────────────────────────────────────────────────────────────────
+class TestPhase1DestinationAllocation(unittest.TestCase):
+    """
+    Strict regression verification for Bug 1 (full-capacity destination need bypass)
+    and Bug 2 (split-transfer Pass 2 destination need bypass), as well as boundary
+    invariants:
+      1. Full-capacity destination never exceeds need
+      2. Split-transfer Pass 2 never exceeds remaining need
+      3. Source quantity < destination need
+      4. Destination capacity < destination need
+      5. Zero destination need receives zero allocation
+      6. Total allocation never exceeds source quantity
+      7. Non-negativity and zero-capacity invariant
+    """
+
+    def test_bug1_full_capacity_destination_never_exceeds_need(self):
+        """
+        Bug 1 regression: When a destination branch has capacity >= source_qty,
+        it must NOT receive source_qty if its actual need is less than source_qty.
+        Allocation must respect min(remaining_source, destination_need, destination_capacity).
+        """
+        # Source batch: 100 units expiring in 60 days (unconstrained 8-week target)
+        source = make_row(60, qty=100, demand=20, capacity=500, branch_id="BR_SRC", branch_name="Source Branch")
+
+        # Destination A: capacity is 500 (>= 100), but demand=20, stock=140 -> target=160, need=20 (< 100)
+        dest_a = make_row(60, qty=140, demand=20, capacity=500, branch_id="BR_A", branch_name="Branch AmpleCapLowNeed")
+
+        # Destination B: capacity=100, demand=20, stock=80 -> target=160, need=80
+        dest_b = make_row(60, qty=80, demand=20, capacity=100, branch_id="BR_B", branch_name="Branch AmpleNeed")
+
+        dests, status, _ = find_destinations(source, pd.DataFrame([source, dest_a, dest_b]))
+        self.assertEqual(status, "OK")
+
+        alloc_map = {d["dest_branch_id"]: d["transfer_quantity"] for d in dests}
+
+        # Destination A has capacity 500 >= 100, but its need is only 20.
+        # Under Bug 1, it received 100 units. It must now receive at most 20 units.
+        self.assertLessEqual(alloc_map.get("BR_A", 0), 20, "Branch A allocation must not exceed its need (20)")
+        self.assertEqual(alloc_map.get("BR_A", 0), 20, "Branch A should receive its exact need of 20 units")
+
+        # Branch B receives the remaining 80 units (its exact need and within capacity 100)
+        self.assertEqual(alloc_map.get("BR_B", 0), 80, "Branch B should receive remaining 80 units")
+
+        total_allocated = sum(d["transfer_quantity"] for d in dests)
+        self.assertEqual(total_allocated, 100, "Total allocated must equal source quantity 100")
+
+    def test_bug2_split_transfer_pass2_never_exceeds_remaining_need(self):
+        """
+        Bug 2 regression: Pass 2 must NOT add leftover units to a destination that
+        already reached its destination need, even if it has remaining capacity.
+        """
+        # Source batch: 100 units expiring in 60 days (unconstrained 8-week target)
+        source = make_row(60, qty=100, demand=20, capacity=500, branch_id="BR_SRC", branch_name="Source Branch")
+
+        # Dest 1: capacity 100, demand 10, stock 55 -> target 80, need 25
+        dest_1 = make_row(60, qty=55, demand=10, capacity=100, branch_id="BR_1", branch_name="Branch D1")
+
+        # Dest 2: capacity 100, demand 10, stock 45 -> target 80, need 35
+        dest_2 = make_row(60, qty=45, demand=10, capacity=100, branch_id="BR_2", branch_name="Branch D2")
+
+        dests, status, _ = find_destinations(source, pd.DataFrame([source, dest_1, dest_2]))
+        self.assertEqual(status, "OK")
+
+        alloc_map = {d["dest_branch_id"]: d["transfer_quantity"] for d in dests}
+
+        # Dest 1 needs 25; under old Pass 2 bug, remaining 40 units were dumped into Dest 1 (giving 25+40=65)
+        # Now, Dest 1 must receive exactly 25, and Dest 2 must receive exactly 35
+        self.assertEqual(alloc_map.get("BR_1", 0), 25, "Dest 1 must not exceed its need of 25 units in Pass 2")
+        self.assertEqual(alloc_map.get("BR_2", 0), 35, "Dest 2 must not exceed its need of 35 units in Pass 2")
+
+        total_allocated = sum(d["transfer_quantity"] for d in dests)
+        self.assertEqual(total_allocated, 60, "Total allocated must equal 60 units (unneeded 40 units must not be forced)")
+        self.assertLessEqual(total_allocated, 100)
+
+    def test_source_quantity_less_than_destination_need(self):
+        """
+        When source quantity is less than destination need, the entire source quantity
+        is transferred to that destination (bounded by source quantity).
+        """
+        # Source: 25 units
+        source = make_row(15, qty=25, demand=20, capacity=500, branch_id="BR_SRC", branch_name="Source Branch")
+
+        # Destination: capacity 500, demand 40, stock 20 -> need = 300 units (> 25)
+        dest = make_row(60, qty=20, demand=40, capacity=500, branch_id="BR_DEST", branch_name="High Need Dest")
+
+        dests, status, _ = find_destinations(source, pd.DataFrame([source, dest]))
+        self.assertEqual(status, "OK")
+        self.assertEqual(len(dests), 1)
+        # min(25, 300, 500) = 25
+        self.assertEqual(dests[0]["transfer_quantity"], 25)
+        self.assertEqual(dests[0]["allocated_quantity"], 25)
+
+    def test_destination_capacity_less_than_destination_need(self):
+        """
+        When destination available capacity is less than destination need,
+        the transfer is capped by destination available capacity.
+        """
+        # Source: 50 units
+        source = make_row(15, qty=50, demand=20, capacity=500, branch_id="BR_SRC", branch_name="Source Branch")
+
+        # Destination: capacity is only 30 (< need 240), demand 30, stock 0 -> need = 240 units
+        # Another destination with capacity 30
+        dest_tight_cap = make_row(60, qty=0, demand=30, capacity=30, branch_id="BR_TIGHT", branch_name="Tight Cap")
+        dest_other = make_row(60, qty=0, demand=30, capacity=30, branch_id="BR_OTHER", branch_name="Other Dest")
+
+        dests, status, _ = find_destinations(source, pd.DataFrame([source, dest_tight_cap, dest_other]))
+        self.assertEqual(status, "OK")
+
+        # For every destination, transfer_quantity must be <= dest_capacity and <= dest_need
+        for d in dests:
+            self.assertLessEqual(
+                d["transfer_quantity"], d["dest_capacity"],
+                f"Transfer {d['transfer_quantity']} exceeded capacity {d['dest_capacity']} for {d['dest_branch_id']}"
+            )
+            self.assertLessEqual(
+                d["transfer_quantity"], d["dest_need"],
+                f"Transfer {d['transfer_quantity']} exceeded need {d['dest_need']} for {d['dest_branch_id']}"
+            )
+
+        # The first destination (BR_OTHER) had capacity 30 < need 240; it received exactly 30 (capped by capacity)
+        self.assertEqual(dests[0]["transfer_quantity"], 30, "Destination with capacity < need must be capped at capacity (30)")
+        # The remaining 20 units went to BR_TIGHT (also capped by its remaining demand/capacity)
+        self.assertEqual(dests[1]["transfer_quantity"], 20)
+
+    def test_zero_destination_need_receives_zero(self):
+        """
+        A destination with zero need (already well-stocked) must receive an allocation of zero,
+        even if it has ample capacity and high demand.
+        """
+        # Source: 50 units
+        source = make_row(15, qty=50, demand=20, capacity=500, branch_id="BR_SRC", branch_name="Source Branch")
+
+        # Destination Zero Need: capacity 500, demand 30, stock 300 (10 weeks cover >= 8 weeks target cover) -> need = 0
+        dest_zero_need = make_row(60, qty=300, demand=30, capacity=500, branch_id="BR_ZERO_NEED", branch_name="Zero Need Branch")
+
+        # Destination High Need: capacity 500, demand 30, stock 10 -> need = 230
+        dest_high_need = make_row(60, qty=10, demand=30, capacity=500, branch_id="BR_HIGH_NEED", branch_name="High Need Branch")
+
+        dests, status, _ = find_destinations(source, pd.DataFrame([source, dest_zero_need, dest_high_need]))
+        self.assertEqual(status, "OK")
+
+        zero_cand = next((d for d in dests if d["dest_branch_id"] == "BR_ZERO_NEED"), None)
+        high_cand = next((d for d in dests if d["dest_branch_id"] == "BR_HIGH_NEED"), None)
+
+        if zero_cand:
+            self.assertEqual(zero_cand["transfer_quantity"], 0, "Zero-need destination must receive 0 units")
+            self.assertEqual(zero_cand["allocated_quantity"], 0)
+
+        self.assertIsNotNone(high_cand)
+        self.assertEqual(high_cand["transfer_quantity"], 50, "High-need branch should receive all 50 units")
+
+    def test_total_allocation_never_exceeds_source_quantity_under_all_conditions(self):
+        """
+        Test multiple batch sizes and network layouts: total allocation must NEVER exceed source_qty,
+        and no individual allocation may be negative or exceed destination capacity/need.
+        """
+        for src_qty in [10, 37, 75, 100, 200, 350]:
+            source = make_row(15, qty=src_qty, demand=25, capacity=1000, branch_id="BR_SRC")
+
+            d1 = make_row(60, qty=20, demand=30, capacity=src_qty // 3 + 10, branch_id="D1")
+            d2 = make_row(60, qty=40, demand=20, capacity=src_qty // 2 + 10, branch_id="D2")
+            d3 = make_row(60, qty=10, demand=40, capacity=src_qty + 50, branch_id="D3")
+
+            df = pd.DataFrame([source, d1, d2, d3])
+            dests, status, _ = find_destinations(source, df)
+
+            if status == "OK":
+                total_allocated = sum(d["transfer_quantity"] for d in dests)
+                self.assertLessEqual(
+                    total_allocated, src_qty,
+                    f"Total allocated {total_allocated} exceeded source quantity {src_qty}"
+                )
+                for d in dests:
+                    t_qty = d["transfer_quantity"]
+                    self.assertGreaterEqual(t_qty, 0, "Allocation must never be negative")
+                    self.assertLessEqual(t_qty, d["dest_capacity"], "Allocation must not exceed capacity")
+                    self.assertLessEqual(t_qty, d["dest_need"], "Allocation must not exceed need")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2: ML Failure Handling Regression Tests
+# ─────────────────────────────────────────────────────────────────────────────
+from unittest.mock import patch
+
+class TestPhase2MLFailureHandling(unittest.TestCase):
+    """
+    Regression verification for ML failure handling:
+    1. ML exception does not crash recommendation generation.
+    2. ml_risk_class is "Unavailable".
+    3. ml_risk_probability is None.
+    4. ML failure is never interpreted as "Low".
+    5. Rule-based recommendations can still be generated when appropriate.
+    """
+
+    def test_ml_failure_does_not_crash_recommender(self):
+        """Simulate ML initialization failure; generate_recommendations must not crash."""
+        source = make_row(5, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        dest = make_row(60, 20, 40, 500, branch_id="BR_DEST", branch_name="Dest Branch")
+        df = pd.DataFrame([source, dest])
+
+        with patch("ml_expiry_model.get_ml_predictor", side_effect=RuntimeError("ML engine crashed")):
+            recs = generate_recommendations(df)
+
+        self.assertIsInstance(recs, list)
+        self.assertGreaterEqual(len(recs), 1)
+
+    def test_ml_failure_reports_unavailable_and_none_probability(self):
+        """On ML failure, ml_risk_class must be 'Unavailable' and ml_risk_probability must be None."""
+        source = make_row(5, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        dest = make_row(60, 20, 40, 500, branch_id="BR_DEST", branch_name="Dest Branch")
+        df = pd.DataFrame([source, dest])
+
+        with patch("ml_expiry_model.get_ml_predictor", side_effect=Exception("Model not loaded")):
+            recs = generate_recommendations(df)
+
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+
+        # In root rec
+        self.assertEqual(rec["ml_risk_class"], "Unavailable", "ml_risk_class must be 'Unavailable' on ML failure")
+        self.assertIsNone(rec["ml_risk_probability"], "ml_risk_probability must be None on ML failure")
+
+        # In decision factors
+        self.assertEqual(rec["decision_factors"]["ml_risk_class"], "Unavailable")
+        self.assertIsNone(rec["decision_factors"]["ml_risk_probability"])
+
+        # In explanation
+        self.assertIn("ML Expiry Risk Prediction: Unavailable", rec["explanation"])
+
+    def test_ml_failure_is_never_interpreted_as_low(self):
+        """ML failure must never be masked as 'Low' risk or 0.0 probability."""
+        source = make_row(5, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        dest = make_row(60, 20, 40, 500, branch_id="BR_DEST", branch_name="Dest Branch")
+        df = pd.DataFrame([source, dest])
+
+        with patch("ml_expiry_model.get_ml_predictor", side_effect=Exception("Prediction error")):
+            recs = generate_recommendations(df)
+
+        for rec in recs:
+            self.assertNotEqual(rec["ml_risk_class"], "Low", "ML failure must not default to 'Low'")
+            self.assertNotEqual(rec["decision_factors"]["ml_risk_class"], "Low")
+            self.assertFalse(
+                "Low (0% probability)" in rec["explanation"],
+                "Explanation must not report Low (0% probability) on ML failure"
+            )
+
+    def test_rule_based_recommendations_continue_when_ml_fails(self):
+        """Rule-based engine must still generate valid TRANSFER recommendations despite ML failure."""
+        source = make_row(5, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        dest = make_row(60, 20, 40, 500, branch_id="BR_DEST", branch_name="Dest Branch")
+        df = pd.DataFrame([source, dest])
+
+        with patch("ml_expiry_model.get_ml_predictor", side_effect=RuntimeError("GPU out of memory")):
+            recs = generate_recommendations(df)
+
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["action"], "TRANSFER", "Rule-based engine must continue generating TRANSFER recommendations")
+        self.assertEqual(rec["destination_branch_id"], "BR_DEST")
+        self.assertEqual(rec["suggested_quantity"], 100)
+        self.assertTrue(rec["is_feasible"])
+
+    def test_flag_for_review_recommendation_handles_ml_failure(self):
+        """FLAG_FOR_REVIEW action also cleanly handles ML failure without crashing."""
+        # Source expiring in 0 days (transit infeasible -> FLAG_FOR_REVIEW)
+        source = make_row(0, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        dest = make_row(60, 20, 40, 500, branch_id="BR_DEST", branch_name="Dest Branch")
+        df = pd.DataFrame([source, dest])
+
+        with patch("ml_expiry_model.get_ml_predictor", side_effect=Exception("Failed to run")):
+            recs = generate_recommendations(df)
+
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["action"], "FLAG_FOR_REVIEW")
+        self.assertEqual(rec["ml_risk_class"], "Unavailable")
+        self.assertIsNone(rec["ml_risk_probability"])
+        self.assertIn("ML Expiry Risk Prediction: Unavailable", rec["explanation"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 3 — Invalid Expiry Date Handling Regression Tests
+# ─────────────────────────────────────────────────────────────────────────────
+class TestPhase3InvalidExpiryHandling(unittest.TestCase):
+    """
+    Regression test suite verifying safe and robust handling of invalid expiry dates:
+    1. Valid expiry dates behave exactly as before.
+    2. Invalid string dates return None and do not crash recommendation generation.
+    3. Impossible month/day values return None and do not crash.
+    4. Empty strings and whitespace return None and do not crash.
+    5. None values return None and do not crash.
+    6. Recommendation generation with invalid expiry data flags for review without automatic transfer.
+    7. calculate_baseline with invalid dates does not treat them as expiring in 0-30 days.
+    8. find_destinations safely rejects invalid expiry dates with INVALID_EXPIRY.
+    """
+
+    def test_valid_expiry_date(self):
+        """Valid expiry dates return correct integer days until expiry without distortion."""
+        # Fixed future date: 2027-05-20
+        fixed_date_str = "2027-05-20"
+        expected_days = (datetime.strptime(fixed_date_str, "%Y-%m-%d").date() - datetime.today().date()).days
+        self.assertEqual(days_to_expiry(fixed_date_str), expected_days)
+
+        # Relative future date: 25 days from today
+        target_25 = (datetime.today() + timedelta(days=25)).strftime("%Y-%m-%d")
+        self.assertEqual(days_to_expiry(target_25), 25)
+
+        # Relative past date: -5 days from today
+        target_past = (datetime.today() + timedelta(days=-5)).strftime("%Y-%m-%d")
+        self.assertEqual(days_to_expiry(target_past), -5)
+
+        # Urgency labels for valid integer days
+        self.assertEqual(urgency_label(25), "near-expiry")
+        self.assertEqual(urgency_label(5), "critical")
+        self.assertEqual(urgency_label(60), "watch")
+        self.assertEqual(urgency_label(120), "safe")
+        self.assertEqual(urgency_label(-5), "expired")
+
+    def test_invalid_string(self):
+        """Malformed strings return None sentinel and 'invalid' urgency."""
+        for bad_str in ["invalid-date", "not-a-date", "20-05-2027", "2027/05/20", "May 20 2027"]:
+            result = days_to_expiry(bad_str)
+            self.assertIsNone(result, f"Expected None for invalid string '{bad_str}', got {result}")
+            self.assertEqual(urgency_label(result), "invalid")
+
+    def test_impossible_month_day(self):
+        """Calendar-impossible dates return None sentinel and 'invalid' urgency."""
+        impossible_dates = [
+            "2026-99-99",
+            "2026-02-30",
+            "2026-02-31",
+            "2026-13-01",
+            "2026-00-10",
+            "2026-04-31",
+            "2026-01-32",
+        ]
+        for bad_date in impossible_dates:
+            result = days_to_expiry(bad_date)
+            self.assertIsNone(result, f"Expected None for impossible date '{bad_date}', got {result}")
+            self.assertEqual(urgency_label(result), "invalid")
+
+    def test_empty_value(self):
+        """Empty and whitespace strings return None sentinel and 'invalid' urgency."""
+        for empty_val in ["", "   ", "\t", "\n"]:
+            result = days_to_expiry(empty_val)
+            self.assertIsNone(result, f"Expected None for empty value {repr(empty_val)}, got {result}")
+            self.assertEqual(urgency_label(result), "invalid")
+
+    def test_none_value(self):
+        """None, NaN, and non-string types return None sentinel and 'invalid' urgency."""
+        self.assertIsNone(days_to_expiry(None))
+        self.assertIsNone(days_to_expiry(float("nan")))
+        self.assertEqual(urgency_label(None), "invalid")
+        self.assertEqual(urgency_label(days_to_expiry(None)), "invalid")
+
+    def test_recommendation_generation_with_invalid_expiry(self):
+        """Batches with invalid expiry must not crash and must be flagged for review, never transferred."""
+        row = {
+            "batch_id": "BATCH-INVALID-1",
+            "medicine_name": "Amoxicillin 500mg",
+            "category": "Antibiotics",
+            "branch_id": "BR_SRC",
+            "branch_name": "Source Branch",
+            "quantity": 100,
+            "expiry_date": "invalid-date",
+            "unit_cost_gbp": 2.50,
+            "demand_per_week": 10,
+            "branch_capacity_remaining": 500,
+        }
+        dest = {
+            "batch_id": "BATCH-DEST-1",
+            "medicine_name": "Amoxicillin 500mg",
+            "category": "Antibiotics",
+            "branch_id": "BR_DEST",
+            "branch_name": "Dest Branch",
+            "quantity": 10,
+            "expiry_date": (datetime.today() + timedelta(days=180)).strftime("%Y-%m-%d"),
+            "unit_cost_gbp": 2.50,
+            "demand_per_week": 50,
+            "branch_capacity_remaining": 500,
+        }
+        df = pd.DataFrame([row, dest])
+
+        # Must not raise an exception
+        recs = generate_recommendations(df)
+
+        # Must identify the invalid expiry row as requiring review
+        matching = [r for r in recs if r["batch_id"] == "BATCH-INVALID-1"]
+        self.assertEqual(len(matching), 1, "Invalid expiry batch should be flagged for review")
+        rec = matching[0]
+
+        # Must never perform automatic transfer decisions
+        self.assertEqual(rec["action"], "FLAG_FOR_REVIEW")
+        self.assertEqual(rec["recommended_action"], "FLAG_FOR_REVIEW")
+        self.assertNotEqual(rec["action"], "TRANSFER")
+        self.assertIsNone(rec["destination_branch"])
+        self.assertEqual(len(rec["destinations"]), 0)
+        self.assertFalse(rec["is_feasible"])
+
+        # Must have None as safe sentinel for days to expiry
+        self.assertIsNone(rec["dte"])
+        self.assertIsNone(rec["days_to_expiry"])
+        self.assertIsNone(rec["decision_factors"]["days_to_expiry"])
+
+        # Urgency must be 'invalid' and clearly identifiable
+        self.assertEqual(rec["risk_urgency"], "invalid")
+        self.assertEqual(rec["urgency"], "invalid")
+
+        # ML risk must be safe sentinel 'Unavailable' / None (not fabricated or assumed Low)
+        self.assertEqual(rec["ml_risk_class"], "Unavailable")
+        self.assertIsNone(rec["ml_risk_probability"])
+
+    def test_recommendation_generation_mixed_valid_and_invalid_batches(self):
+        """Mixed DataFrame with valid near-expiry and invalid dates processes both appropriately."""
+        valid_source = make_row(10, 80, 10, 500, branch_id="BR_VALID", branch_name="Valid Source")
+        invalid_source = {
+            "batch_id": "BATCH-BAD-DATE",
+            "medicine_name": "Test Medicine",
+            "category": "Test",
+            "branch_id": "BR_INVALID",
+            "branch_name": "Invalid Source",
+            "quantity": 60,
+            "expiry_date": "2026-99-99",
+            "unit_cost_gbp": 1.00,
+            "demand_per_week": 10,
+            "branch_capacity_remaining": 500,
+        }
+        dest = make_row(120, 10, 40, 500, branch_id="BR_DEST", branch_name="Dest Branch")
+        df = pd.DataFrame([valid_source, invalid_source, dest])
+
+        recs = generate_recommendations(df)
+
+        # Valid source receives normal rule-based transfer recommendation
+        valid_recs = [r for r in recs if r["batch_id"] == valid_source["batch_id"]]
+        self.assertEqual(len(valid_recs), 1)
+        self.assertEqual(valid_recs[0]["action"], "TRANSFER")
+        self.assertEqual(valid_recs[0]["days_to_expiry"], 10)
+
+        # Invalid source receives review recommendation without transfer
+        invalid_recs = [r for r in recs if r["batch_id"] == "BATCH-BAD-DATE"]
+        self.assertEqual(len(invalid_recs), 1)
+        self.assertEqual(invalid_recs[0]["action"], "FLAG_FOR_REVIEW")
+        self.assertIsNone(invalid_recs[0]["days_to_expiry"])
+        self.assertEqual(invalid_recs[0]["urgency"], "invalid")
+
+    def test_recommendation_generation_with_none_and_empty_expiry(self):
+        """None and empty string expiry dates cleanly result in FLAG_FOR_REVIEW without crashing."""
+        for exp_val in [None, ""]:
+            row = {
+                "batch_id": f"BATCH-TEST-{exp_val}",
+                "medicine_name": "Paracetamol 500mg",
+                "category": "Analgesics",
+                "branch_id": "BR_SRC",
+                "branch_name": "Source",
+                "quantity": 50,
+                "expiry_date": exp_val,
+                "unit_cost_gbp": 0.50,
+                "demand_per_week": 5,
+                "branch_capacity_remaining": 500,
+            }
+            df = pd.DataFrame([row])
+            recs = generate_recommendations(df)
+            self.assertEqual(len(recs), 1)
+            self.assertEqual(recs[0]["action"], "FLAG_FOR_REVIEW")
+            self.assertIsNone(recs[0]["days_to_expiry"])
+            self.assertEqual(recs[0]["urgency"], "invalid")
+
+    def test_find_destinations_with_invalid_expiry_rejects_transfer(self):
+        """find_destinations directly called with invalid expiry returns INVALID_EXPIRY status."""
+        bad_row = {
+            "medicine_name": "Ibuprofen 400mg",
+            "branch_id": "BR01",
+            "quantity": 100,
+            "expiry_date": "bad-date-format",
+            "demand_per_week": 10,
+        }
+        dest_df = pd.DataFrame([{
+            "medicine_name": "Ibuprofen 400mg",
+            "branch_id": "BR02",
+            "branch_name": "Dest",
+            "quantity": 10,
+            "demand_per_week": 50,
+            "branch_capacity_remaining": 500,
+        }])
+        dests, status, msg = find_destinations(bad_row, dest_df)
+        self.assertEqual(dests, [])
+        self.assertEqual(status, "INVALID_EXPIRY")
+        self.assertIn("review", msg.lower())
+
+    def test_calculate_baseline_with_invalid_expiry(self):
+        """calculate_baseline excludes invalid expiry dates from the 0-30 days risk calculation."""
+        df = pd.DataFrame([
+            {"expiry_date": "invalid-date", "quantity": 100, "unit_cost_gbp": 5.0},
+            {"expiry_date": "2026-99-99",   "quantity": 50,  "unit_cost_gbp": 2.0},
+            {"expiry_date": None,           "quantity": 20,  "unit_cost_gbp": 1.0},
+            {"expiry_date": "",             "quantity": 30,  "unit_cost_gbp": 1.0},
+        ])
+        baseline = calculate_baseline(df)
+        self.assertEqual(baseline, 0.0, "Invalid expiry dates must not contribute to 0-30 day baseline risk")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 4 — Invalid Numeric Input Handling Regression Tests
+# ─────────────────────────────────────────────────────────────────────────────
+class TestPhase4InvalidNumericHandling(unittest.TestCase):
+    """
+    Regression test suite verifying safe and robust handling of invalid numeric inputs:
+    1. Validation at data-import/database boundary (validate_stock_row).
+    2. Preventing non-numeric strings ('abc', 'hello', '', None) from crashing calculations.
+    3. Preventing negative inventory quantities, capacity, demand, and costs.
+    4. Rejecting / flagging corrupted records as FLAG_FOR_REVIEW without automatic transfer.
+    5. Excluding corrupted candidate destination branches from receiving transfers.
+    6. Preserving exact behavior for valid numeric inputs.
+    """
+
+    def test_invalid_quantity(self):
+        """Non-numeric string, empty, None, and fractional quantities are rejected and flagged for review."""
+        base_row = make_row(15, qty=100, demand=20, capacity=500)
+
+        # Database/import boundary rejection
+        for bad_qty in ["abc", "hello", "", None, 15.5]:
+            row = dict(base_row)
+            row["quantity"] = bad_qty
+            valid, err, _, _ = validate_stock_row(row)
+            self.assertFalse(valid, f"Expected validate_stock_row to reject quantity {repr(bad_qty)}")
+            self.assertTrue(
+                any(k in str(err).lower() for k in ["quantity", "empty", "integer", "invalid"]),
+                f"Error message should mention quantity issue: {err}"
+            )
+
+        # Recommendation engine: must not crash and must flag for review, never transfer
+        df = pd.DataFrame([{
+            "batch_id": "BATCH-BAD-QTY",
+            "medicine_name": "Paracetamol 500mg",
+            "category": "Pain",
+            "branch_id": "BR_SRC",
+            "branch_name": "Source",
+            "quantity": "abc",
+            "expiry_date": (datetime.today() + timedelta(days=15)).strftime("%Y-%m-%d"),
+            "unit_cost_gbp": 1.50,
+            "demand_per_week": 10,
+            "branch_capacity_remaining": 500,
+        }])
+        recs = generate_recommendations(df)
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["action"], "FLAG_FOR_REVIEW")
+        self.assertEqual(rec["recommended_action"], "FLAG_FOR_REVIEW")
+        self.assertIsNone(rec["destination_branch"])
+        self.assertEqual(rec["destinations"], [])
+        self.assertFalse(rec["is_feasible"])
+        self.assertIn("corrupted numeric", rec["reason"].lower())
+
+        # find_destinations directly called with invalid quantity
+        dests, status, msg = find_destinations(df.iloc[0], df)
+        self.assertEqual(dests, [])
+        self.assertEqual(status, "INVALID_NUMERIC_DATA")
+
+    def test_negative_quantity(self):
+        """Negative quantities are rejected at DB boundary and flagged for review without transfer."""
+        base_row = make_row(15, qty=100, demand=20, capacity=500)
+
+        for neg_qty in [-1, -10, -500]:
+            row = dict(base_row)
+            row["quantity"] = neg_qty
+            valid, err, _, _ = validate_stock_row(row)
+            self.assertFalse(valid)
+            self.assertIn("negative", str(err).lower())
+
+        # Recommendation engine
+        df = pd.DataFrame([{
+            "batch_id": "BATCH-NEG-QTY",
+            "medicine_name": "Ibuprofen 400mg",
+            "category": "Pain",
+            "branch_id": "BR_SRC",
+            "branch_name": "Source",
+            "quantity": -20,
+            "expiry_date": (datetime.today() + timedelta(days=15)).strftime("%Y-%m-%d"),
+            "unit_cost_gbp": 2.00,
+            "demand_per_week": 10,
+            "branch_capacity_remaining": 500,
+        }])
+        recs = generate_recommendations(df)
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["action"], "FLAG_FOR_REVIEW")
+        self.assertIsNone(rec["destination_branch"])
+        self.assertIn("negative", rec["reason"].lower())
+
+        # find_destinations directly
+        dests, status, msg = find_destinations(df.iloc[0], df)
+        self.assertEqual(dests, [])
+        self.assertEqual(status, "INVALID_NUMERIC_DATA")
+
+    def test_invalid_demand(self):
+        """Non-numeric string, empty, and None demands are rejected and excluded from receiving transfers."""
+        base_row = make_row(15, qty=100, demand=20, capacity=500)
+
+        for bad_dem in ["abc", "hello", "", None]:
+            row = dict(base_row)
+            row["demand_per_week"] = bad_dem
+            valid, err, _, _ = validate_stock_row(row)
+            self.assertFalse(valid)
+            self.assertTrue(any(k in str(err).lower() for k in ["demand", "empty", "invalid"]))
+
+        # Candidate destination with invalid demand must be excluded from receiving transfers
+        source = make_row(15, 100, 10, 500, branch_id="BR_SRC", branch_name="Source")
+        dest_bad_dem = {
+            "batch_id": "DEST-BAD-DEM",
+            "medicine_name": source["medicine_name"],
+            "category": "Test",
+            "branch_id": "BR_BAD_DEM",
+            "branch_name": "Bad Demand Branch",
+            "quantity": 20,
+            "expiry_date": (datetime.today() + timedelta(days=180)).strftime("%Y-%m-%d"),
+            "unit_cost_gbp": 1.00,
+            "demand_per_week": "abc",
+            "branch_capacity_remaining": 500,
+        }
+        dest_valid = make_row(180, 20, 50, 500, branch_id="BR_VALID_DEST", branch_name="Valid Dest")
+        df = pd.DataFrame([source, dest_bad_dem, dest_valid])
+
+        recs = generate_recommendations(df)
+        valid_recs = [r for r in recs if r["batch_id"] == source["batch_id"]]
+        self.assertEqual(len(valid_recs), 1)
+        # Must only transfer to the valid branch, never to the branch with invalid demand
+        self.assertEqual(valid_recs[0]["destination_branch_id"], "BR_VALID_DEST")
+
+        # calculate_destination_need with invalid demand returns 0 safely
+        self.assertEqual(calculate_destination_need({"demand_per_week": "abc", "quantity": 10}), 0)
+        # calculate_need_score with invalid demand returns 0.0 safely
+        score, comps = calculate_need_score({"demand_per_week": "abc", "quantity": 10, "branch_capacity_remaining": 500}, 50)
+        self.assertEqual(score, 0.0)
+
+    def test_negative_demand(self):
+        """Negative demand is rejected at DB boundary and excluded from receiving transfers."""
+        base_row = make_row(15, qty=100, demand=20, capacity=500)
+
+        for neg_dem in [-1, -5, -100]:
+            row = dict(base_row)
+            row["demand_per_week"] = neg_dem
+            valid, err, _, _ = validate_stock_row(row)
+            self.assertFalse(valid)
+            self.assertIn("negative", str(err).lower())
+
+        # Candidate destination with negative demand excluded from transfers
+        source = make_row(15, 100, 10, 500, branch_id="BR_SRC", branch_name="Source")
+        dest_neg_dem = make_row(180, 20, -10, 500, branch_id="BR_NEG_DEM", branch_name="Neg Demand")
+        dest_valid = make_row(180, 20, 40, 500, branch_id="BR_VALID", branch_name="Valid Dest")
+        df = pd.DataFrame([source, dest_neg_dem, dest_valid])
+
+        recs = generate_recommendations(df)
+        self.assertEqual(recs[0]["destination_branch_id"], "BR_VALID")
+
+        # calculate_destination_need & calculate_need_score return 0 for negative demand
+        self.assertEqual(calculate_destination_need({"demand_per_week": -10, "quantity": 10}), 0)
+        score, _ = calculate_need_score({"demand_per_week": -10, "quantity": 10, "branch_capacity_remaining": 500}, 50)
+        self.assertEqual(score, 0.0)
+
+    def test_invalid_capacity(self):
+        """Non-numeric string, empty, and None capacity are rejected and excluded from transfers."""
+        base_row = make_row(15, qty=100, demand=20, capacity=500)
+
+        for bad_cap in ["abc", "hello", "", None]:
+            row = dict(base_row)
+            row["branch_capacity_remaining"] = bad_cap
+            valid, err, _, _ = validate_stock_row(row)
+            self.assertFalse(valid)
+            self.assertTrue(any(k in str(err).lower() for k in ["capacity", "empty", "invalid"]))
+
+        # Destination with invalid capacity cannot receive transfer
+        source = make_row(15, 100, 10, 500, branch_id="BR_SRC", branch_name="Source")
+        dest_bad_cap = {
+            "batch_id": "DEST-BAD-CAP",
+            "medicine_name": source["medicine_name"],
+            "category": "Test",
+            "branch_id": "BR_BAD_CAP",
+            "branch_name": "Bad Capacity Branch",
+            "quantity": 10,
+            "expiry_date": (datetime.today() + timedelta(days=180)).strftime("%Y-%m-%d"),
+            "unit_cost_gbp": 1.00,
+            "demand_per_week": 50,
+            "branch_capacity_remaining": "abc",
+        }
+        dest_valid = make_row(180, 10, 50, 500, branch_id="BR_VALID_DEST", branch_name="Valid Dest")
+        df = pd.DataFrame([source, dest_bad_cap, dest_valid])
+
+        recs = generate_recommendations(df)
+        self.assertEqual(recs[0]["destination_branch_id"], "BR_VALID_DEST")
+
+        # calculate_need_score returns 0.0 safely
+        score, _ = calculate_need_score({"demand_per_week": 50, "quantity": 10, "branch_capacity_remaining": "abc"}, 50)
+        self.assertEqual(score, 0.0)
+
+    def test_negative_capacity(self):
+        """Negative capacity is rejected at DB boundary and excluded from receiving transfers."""
+        base_row = make_row(15, qty=100, demand=20, capacity=500)
+
+        for neg_cap in [-1, -50, -500]:
+            row = dict(base_row)
+            row["branch_capacity_remaining"] = neg_cap
+            valid, err, _, _ = validate_stock_row(row)
+            self.assertFalse(valid)
+            self.assertIn("negative", str(err).lower())
+
+        # Destination with negative capacity excluded from transfers
+        source = make_row(15, 100, 10, 500, branch_id="BR_SRC", branch_name="Source")
+        dest_neg_cap = make_row(180, 10, 50, -100, branch_id="BR_NEG_CAP", branch_name="Neg Cap")
+        dest_valid = make_row(180, 10, 50, 500, branch_id="BR_VALID_DEST", branch_name="Valid Dest")
+        df = pd.DataFrame([source, dest_neg_cap, dest_valid])
+
+        recs = generate_recommendations(df)
+        self.assertEqual(recs[0]["destination_branch_id"], "BR_VALID_DEST")
+
+        score, _ = calculate_need_score({"demand_per_week": 50, "quantity": 10, "branch_capacity_remaining": -100}, 50)
+        self.assertEqual(score, 0.0)
+
+    def test_invalid_cost(self):
+        """Non-numeric string, empty, None, and negative costs are rejected and flagged for review."""
+        base_row = make_row(15, qty=100, demand=20, capacity=500)
+
+        for bad_cost in ["abc", "hello", "", None, -2.50, -0.01]:
+            row = dict(base_row)
+            row["unit_cost_gbp"] = bad_cost
+            valid, err, _, _ = validate_stock_row(row)
+            self.assertFalse(valid)
+            self.assertTrue(any(k in str(err).lower() for k in ["unit_cost", "cost", "empty", "invalid", "negative"]))
+
+        # score_batch does not crash on invalid cost
+        score = score_batch({"urgency": "critical", "quantity": 100, "unit_cost_gbp": "abc"})
+        self.assertIsInstance(score, float)
+
+        # calculate_baseline does not crash on invalid or negative cost
+        df_cost = pd.DataFrame([
+            {"expiry_date": (datetime.today() + timedelta(days=15)).strftime("%Y-%m-%d"), "quantity": 100, "unit_cost_gbp": "abc"},
+            {"expiry_date": (datetime.today() + timedelta(days=15)).strftime("%Y-%m-%d"), "quantity": 100, "unit_cost_gbp": -5.0},
+        ])
+        baseline = calculate_baseline(df_cost)
+        self.assertEqual(baseline, 0.0, "Corrupted cost must not contribute to baseline stock value")
+
+        # generate_recommendations flags corrupted unit cost for review
+        df = pd.DataFrame([{
+            "batch_id": "BATCH-BAD-COST",
+            "medicine_name": "Amoxicillin 500mg",
+            "category": "Antibiotics",
+            "branch_id": "BR_SRC",
+            "branch_name": "Source",
+            "quantity": 100,
+            "expiry_date": (datetime.today() + timedelta(days=15)).strftime("%Y-%m-%d"),
+            "unit_cost_gbp": "abc",
+            "demand_per_week": 20,
+            "branch_capacity_remaining": 500,
+        }])
+        recs = generate_recommendations(df)
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0]["action"], "FLAG_FOR_REVIEW")
+        self.assertIn("corrupted numeric", recs[0]["reason"].lower())
+
+    def test_valid_numeric_behavior_preserved(self):
+        """Standard valid numeric data behaves with 100% accuracy and consistency."""
+        source = make_row(10, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+        dest = make_row(120, 10, 50, 500, branch_id="BR_DEST", branch_name="Dest Branch")
+        df = pd.DataFrame([source, dest])
+
+        recs = generate_recommendations(df)
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["action"], "TRANSFER")
+        self.assertEqual(rec["suggested_quantity"], 100)
+        self.assertEqual(rec["destination_branch_id"], "BR_DEST")
+        self.assertTrue(rec["is_feasible"])
+        self.assertEqual(rec["quantity"], 100)
+        self.assertEqual(rec["unit_cost_gbp"], 1.0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 5 — Destination Need Calculation Using Remaining Shelf Life Tests
+# ─────────────────────────────────────────────────────────────────────────────
+class TestPhase5DestinationNeedShelfLife(unittest.TestCase):
+    """
+    Regression tests for calculate_destination_need() shelf-life bounding.
+    Guarantees:
+      1. Normal 8-week demand when shelf life does not constrain it (usable_days is None or >= 56).
+      2. Short remaining shelf life constrains demand coverage (e.g. demand=20, usable_days=5 -> target 14).
+      3. Zero demand branches always return 0 need.
+      4. Current stock greater than target returns 0 need (never negative).
+      5. Zero usable days returns 0 need.
+      6. Negative and invalid usable days return 0 need.
+      7. Negative demand returns 0 need (never negative).
+      8. End-to-end find_destinations respects destination need bounded by shelf life.
+    """
+
+    def test_normal_8_week_demand(self):
+        """Preserves the existing 8-week target when shelf life is unspecified or does not constrain it."""
+        # Case A: usable_days is None -> standard 8-week target
+        dest_none = {"demand_per_week": 20, "quantity": 10}
+        # target_stock = 20 * 8 = 160; need = 160 - 10 = 150
+        self.assertEqual(calculate_destination_need(dest_none, usable_days=None), 150)
+        self.assertEqual(calculate_destination_need(dest_none), 150)
+
+        # Case B: usable_days is large (e.g. 70 days = 10 weeks >= 8 weeks) -> capped at 8 weeks
+        self.assertEqual(calculate_destination_need(dest_none, usable_days=70), 150)
+
+        # Case C: exact 56 days (8 weeks)
+        self.assertEqual(calculate_destination_need(dest_none, usable_days=56), 150)
+
+    def test_short_remaining_shelf_life(self):
+        """When usable_days is known and short, limits demand coverage by usable shelf life."""
+        # Example from prompt: demand = 20 units/week, usable_days = 5
+        # usable_weeks = 5 / 7 = 0.7142857
+        # weeks_to_cover = min(8, 0.7142857) = 0.7142857
+        # target_stock = 20 * (5/7) = 14.2857 -> round to 14
+        dest_zero_stock = {"demand_per_week": 20, "quantity": 0}
+        need_zero_stock = calculate_destination_need(dest_zero_stock, usable_days=5)
+        self.assertEqual(need_zero_stock, 14, "Need must be bounded to 14 units for 5 usable days, not 160")
+
+        # With 10 units already in stock: target 14.2857 - 10 = 4.2857 -> 4 units
+        dest_with_stock = {"demand_per_week": 20, "quantity": 10}
+        need_with_stock = calculate_destination_need(dest_with_stock, usable_days=5)
+        self.assertEqual(need_with_stock, 4, "Must subtract existing destination stock from target stock")
+
+        # Destination need must not exceed reasonable consumption during usable period
+        max_possible_consumption = int(round((20.0 / 7.0) * 5))
+        self.assertLessEqual(need_with_stock, max_possible_consumption)
+
+    def test_zero_demand(self):
+        """Branches with zero demand always return 0 need under all shelf life conditions."""
+        dest_zero = {"demand_per_week": 0, "quantity": 0}
+        self.assertEqual(calculate_destination_need(dest_zero, usable_days=None), 0)
+        self.assertEqual(calculate_destination_need(dest_zero, usable_days=5), 0)
+        self.assertEqual(calculate_destination_need(dest_zero, usable_days=70), 0)
+
+        dest_zero_with_stock = {"demand_per_week": 0, "quantity": 50}
+        self.assertEqual(calculate_destination_need(dest_zero_with_stock, usable_days=5), 0)
+
+    def test_current_stock_greater_than_target(self):
+        """When destination already has stock exceeding target, need is 0 (never negative)."""
+        # Under normal 8-week demand: target = 10 * 8 = 80; current_stock = 100
+        dest_well_stocked = {"demand_per_week": 10, "quantity": 100}
+        self.assertEqual(calculate_destination_need(dest_well_stocked, usable_days=None), 0)
+
+        # Under short shelf life: target = 20 * (5/7) = 14.3; current_stock = 30
+        dest_stocked_short_life = {"demand_per_week": 20, "quantity": 30}
+        self.assertEqual(calculate_destination_need(dest_stocked_short_life, usable_days=5), 0)
+
+        # When stock exactly equals target
+        dest_exact = {"demand_per_week": 10, "quantity": 80}
+        self.assertEqual(calculate_destination_need(dest_exact, usable_days=None), 0)
+
+    def test_zero_usable_days(self):
+        """Zero usable days results in 0 need (stock cannot be consumed before expiry)."""
+        dest = {"demand_per_week": 50, "quantity": 0}
+        self.assertEqual(calculate_destination_need(dest, usable_days=0), 0)
+
+    def test_negative_and_invalid_usable_days(self):
+        """Negative and invalid usable days return 0 need safely."""
+        dest = {"demand_per_week": 50, "quantity": 0}
+        # Negative usable days
+        self.assertEqual(calculate_destination_need(dest, usable_days=-1), 0)
+        self.assertEqual(calculate_destination_need(dest, usable_days=-10), 0)
+        self.assertEqual(calculate_destination_need(dest, usable_days=-100.5), 0)
+
+        # Non-numeric string and malformed types
+        self.assertEqual(calculate_destination_need(dest, usable_days="abc"), 0)
+        self.assertEqual(calculate_destination_need(dest, usable_days=""), 0)
+        self.assertEqual(calculate_destination_need(dest, usable_days="   "), 0)
+        self.assertEqual(calculate_destination_need(dest, usable_days=[]), 0)
+        self.assertEqual(calculate_destination_need(dest, usable_days={}), 0)
+
+    def test_negative_demand_never_returns_positive_need(self):
+        """Negative demand never returns positive need under any condition."""
+        dest_neg = {"demand_per_week": -20, "quantity": 0}
+        self.assertEqual(calculate_destination_need(dest_neg, usable_days=None), 0)
+        self.assertEqual(calculate_destination_need(dest_neg, usable_days=5), 0)
+        self.assertEqual(calculate_destination_need(dest_neg, usable_days=70), 0)
+
+    def test_end_to_end_find_destinations_with_short_shelf_life(self):
+        """find_destinations constrains allocation to what receiving branch can consume before expiry."""
+        # Source batch: 100 units expiring in 8 days. Transfer takes 3 days -> 5 usable days.
+        source = make_row(8, qty=100, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source")
+        # Destination: capacity 500, demand 20 units/wk, stock 0
+        # In 5 usable days, can only consume: 20 * (5/7) = 14 units
+        dest = make_row(60, qty=0, demand=20, capacity=500, branch_id="BR_DEST", branch_name="Dest Branch")
+        df = pd.DataFrame([source, dest])
+
+        dests, status, _ = find_destinations(source, df, transfer_days=3)
+        self.assertEqual(status, "OK")
+        self.assertEqual(len(dests), 1)
+        # Allocation must NOT be 100 or 160; it must be capped at 14 units!
+        self.assertEqual(dests[0]["transfer_quantity"], 14)
+        self.assertEqual(dests[0]["dest_need"], 14)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 6 — Absorption Percentage Calculation Tests
+# ─────────────────────────────────────────────────────────────────────────────
+class TestPhase6AbsorptionPercentage(unittest.TestCase):
+    """
+    Regression tests for absorption percentage calculation in find_destinations().
+    Guarantees:
+      1. When transfer_quantity <= 0, absorption_pct is strictly 0 (never non-zero).
+      2. Partial transfers compute absorption based on the actual transfer quantity.
+      3. Full transfers compute absorption based on the actual transfer quantity.
+      4. When expected demand exceeds transfer quantity, absorption is capped at 100%.
+      5. When expected demand is lower than transfer quantity, absorption reflects actual ratio.
+    """
+
+    def test_zero_transfer_yields_zero_absorption(self):
+        """Destination receiving zero allocation must have absorption_pct == 0."""
+        # Source batch: 20 units expiring in 25 days (usable_days = 24 after 1d transit)
+        source = make_row(25, qty=20, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source")
+
+        # Destination 1 takes all 20 units
+        dest_1 = make_row(60, qty=0, demand=50, capacity=500, branch_id="BR_D1", branch_name="Dest 1")
+
+        # Destination 2 receives 0 units because source stock is exhausted by Dest 1
+        dest_2 = make_row(60, qty=0, demand=30, capacity=500, branch_id="BR_D2", branch_name="Dest 2")
+
+        df = pd.DataFrame([source, dest_1, dest_2])
+        dests, status, _ = find_destinations(source, df, transfer_days=1)
+        self.assertEqual(status, "OK")
+
+        dest_map = {d["dest_branch_id"]: d for d in dests}
+        self.assertEqual(dest_map["BR_D1"]["transfer_quantity"], 20)
+        self.assertGreater(dest_map["BR_D1"]["absorption_pct"], 0)
+
+        # Dest 2 receives 0 units: absorption_pct must be strictly 0, not computed from source_qty fallback
+        self.assertEqual(dest_map["BR_D2"]["transfer_quantity"], 0)
+        self.assertEqual(dest_map["BR_D2"]["absorption_pct"], 0,
+                         "Destination receiving zero units must have absorption_pct == 0")
+
+    def test_partial_transfer_absorption(self):
+        """Partial transfer computes absorption based on actual allocated transfer quantity."""
+        # Source batch: 100 units expiring in 8 days (transit 1d -> 7 usable days = 1 week)
+        source = make_row(8, qty=100, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source")
+
+        # Dest 1: capacity 50 (< 100), demand 25 units/week, stock 0.
+        # In 7 usable days, expected demand = (25 / 7) * 7 = 25 units.
+        # Need = 25 units. Cap = 50. Dest 1 gets 25 units.
+        # Absorption = (25 expected demand / 25 transfer) * 100 = 100%
+        # Let's test a branch receiving transfer of 50 where expected demand is 25:
+        # Dest: capacity 50, demand 25/week, stock 0. Source is 50.
+        # If usable_days = 7, expected demand is 25.
+        # Dest gets 25 units.
+        # To test partial absorption, let usable_days = 7, demand = 14 units/week.
+        # In 7 days, expected demand = 14 units.
+        # Let Dest receive 28 units (e.g. source 28 units, or allocation 28 units).
+        source_28 = make_row(8, qty=28, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source")
+        dest_28 = make_row(60, qty=0, demand=14, capacity=500, branch_id="BR_DEST", branch_name="Dest")
+        df = pd.DataFrame([source_28, dest_28])
+
+        # Dest need: usable_days = 8 - 1 = 7. usable_weeks = 1.0. target_stock = 14 * 1.0 = 14.
+        # Dest will receive 14 units (its need). Expected demand = (14 / 7) * 7 = 14.
+        # Absorption = (14 / 14) * 100 = 100%.
+
+        # Now test where transfer quantity exceeds expected demand:
+        # Source batch has 60 days to expiry. Usable days = 7 days (via transfer_days=53 -> usable=7)
+        # Or specify transfer_days so that usable_days is 7:
+        source_split = make_row(15, qty=80, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source")
+        # Usable days = 15 - 1 = 14 days (2 weeks).
+        # Dest 1: demand = 21/week, stock = 0, capacity = 60.
+        # In 14 usable days, expected demand = (21 / 7) * 14 = 42 units.
+        # Need = min(8, 2) * 21 = 42 units.
+        # Let Dest 1 receive 42 units: absorption = 100%.
+        # Let Dest 2 have demand = 7/week, stock = 0, capacity = 60.
+        # In 14 usable days, expected demand = (7 / 7) * 14 = 14 units.
+        # Need = min(8, 2) * 7 = 14 units.
+        # If Dest 2 receives 14 units, absorption = 100%.
+        # If Dest 1 receives 50 units (transfer_quantity = 50), and expected_demand = 25:
+        # Absorption = (25 / 50) * 100 = 50%.
+        dests, status, _ = find_destinations(source_split, pd.DataFrame([
+            source_split,
+            make_row(60, qty=0, demand=14, capacity=500, branch_id="BR_PARTIAL", branch_name="Partial Dest")
+        ]), transfer_days=8)  # 15 - 8 = 7 usable days (1 week)
+        # Expected demand = (14 / 7) * 7 = 14 units.
+        # Need = min(8, 1) * 14 = 14 units.
+        # Transfer qty = 14 units.
+        self.assertEqual(dests[0]["transfer_quantity"], 14)
+        self.assertEqual(dests[0]["absorption_pct"], 100)
+
+    def test_full_transfer(self):
+        """Full transfer calculates absorption based on the transferred quantity."""
+        # Source: 50 units expiring in 15 days, transfer_days=1 -> 14 usable days (2 weeks)
+        source = make_row(15, qty=50, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source")
+        # Dest: demand 25/week, stock 0, capacity 500.
+        # In 14 usable days, expected demand = (25 / 7) * 14 = 50 units.
+        # Need = 25 * 2 = 50 units.
+        # Dest receives the full 50 units.
+        dest = make_row(60, qty=0, demand=25, capacity=500, branch_id="BR_DEST", branch_name="Dest")
+        df = pd.DataFrame([source, dest])
+
+        dests, status, _ = find_destinations(source, df, transfer_days=1)
+        self.assertEqual(status, "OK")
+        self.assertEqual(dests[0]["transfer_quantity"], 50)
+        # Expected demand = 50; transfer = 50 -> (50 / 50) * 100 = 100%
+        self.assertEqual(dests[0]["absorption_pct"], 100)
+
+    def test_expected_demand_greater_than_transfer(self):
+        """When expected consumption during usable shelf life exceeds transfer quantity, absorption is capped at 100%."""
+        # Source: 20 units expiring in 15 days, transfer_days=1 -> 14 usable days (2 weeks)
+        source = make_row(15, qty=20, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source")
+        # Dest: demand 70/week, stock 0, capacity 500.
+        # In 14 usable days, expected demand = (70 / 7) * 14 = 140 units.
+        # Transfer quantity is limited by source quantity = 20 units.
+        dest = make_row(60, qty=0, demand=70, capacity=500, branch_id="BR_DEST", branch_name="High Demand Dest")
+        df = pd.DataFrame([source, dest])
+
+        dests, status, _ = find_destinations(source, df, transfer_days=1)
+        self.assertEqual(status, "OK")
+        self.assertEqual(dests[0]["transfer_quantity"], 20)
+        # Ratio is 140 / 20 = 700%, but must be capped at 100%
+        self.assertEqual(dests[0]["absorption_pct"], 100)
+
+    def test_expected_demand_lower_than_transfer(self):
+        """When expected consumption during usable shelf life is less than transfer quantity, absorption is correctly scaled."""
+        # 1. Direct formula unit test:
+        # If transfer is 100 units and expected demand is 25 units -> absorption is exactly 25%
+        expected_demand = 25.0
+        transfer_qty = 100
+        absorption_pct = max(0, min(100, int(round((expected_demand / float(transfer_qty)) * 100))))
+        self.assertEqual(absorption_pct, 25, "Expected 25% absorption when demand is 25 and transfer is 100")
+
+        # If transfer is 50 units and expected demand is 15 units -> absorption is exactly 30%
+        expected_demand_2 = 15.0
+        transfer_qty_2 = 50
+        absorption_pct_2 = max(0, min(100, int(round((expected_demand_2 / float(transfer_qty_2)) * 100))))
+        self.assertEqual(absorption_pct_2, 30, "Expected 30% absorption when demand is 15 and transfer is 50")
+
+        # 2. End-to-end in find_destinations:
+        # Source expiring in 10 days, transit 1d -> 9 usable days
+        # Destination with demand 2/week, stock 0
+        # Expected demand = (2 / 7) * 9 = 2.5714 units
+        # dest_need = round(2.5714) = 3 units -> transfer_quantity = 3 units
+        # absorption = round((2.5714 / 3.0) * 100) = round(85.71) = 86% (< 100%)
+        source = make_row(10, qty=10, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source")
+        dest = make_row(60, qty=0, demand=2, capacity=500, branch_id="BR_DEST", branch_name="Dest")
+        df = pd.DataFrame([source, dest])
+
+        dests, status, _ = find_destinations(source, df, transfer_days=1)
+        self.assertEqual(status, "OK")
+        self.assertEqual(dests[0]["transfer_quantity"], 3)
+        self.assertLess(dests[0]["absorption_pct"], 100)
+        self.assertEqual(dests[0]["absorption_pct"], 86)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 7 — High-Impact Confirmation Consistency Tests
+# ─────────────────────────────────────────────────────────────────────────────
+class TestPhase7HighImpactConfirmationConsistency(unittest.TestCase):
+    """
+    Regression tests ensuring consistency between is_high_impact and requires_confirmation.
+    Guarantees:
+      1. High-impact recommendations (> £50 value or > 200 units) require confirmation (requires_confirmation == True).
+      2. High-impact recommendation with action == TRANSFER has is_high_impact=True, requires_confirmation=True, is_feasible=True.
+      3. Non-high-impact recommendation with action == TRANSFER has is_high_impact=False, requires_confirmation=False, is_feasible=True.
+      4. High-impact recommendation with action == FLAG_FOR_REVIEW has is_high_impact=True, requires_confirmation=True, is_feasible=False.
+      5. Non-high-impact recommendation with action == FLAG_FOR_REVIEW has is_high_impact=False, requires_confirmation=False, is_feasible=False.
+      6. Invariant holds: there is never a state where is_high_impact is True and requires_confirmation is False.
+      7. Barcode lookup recommendations maintain the same consistency for both TRANSFER and FLAG_FOR_REVIEW.
+    """
+
+    def test_high_impact_transfer_requires_confirmation(self):
+        """Feasible transfer with high value or quantity has is_high_impact=True and requires_confirmation=True."""
+        # Source: 50 units @ £5.00 = £250 > £50 threshold
+        source = make_row(25, qty=50, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source", cost=5.00)
+        dest = make_row(100, qty=10, demand=40, capacity=500, branch_id="BR_DEST", branch_name="Dest", cost=5.00)
+        df = pd.DataFrame([source, dest])
+
+        recs = generate_recommendations(df)
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["action"], "TRANSFER")
+        self.assertTrue(rec["is_feasible"])
+        self.assertTrue(rec["is_high_impact"])
+        self.assertTrue(rec["requires_confirmation"], "High-impact TRANSFER must have requires_confirmation == True")
+
+    def test_normal_transfer_does_not_require_confirmation(self):
+        """Feasible transfer below high impact thresholds has is_high_impact=False and requires_confirmation=False."""
+        # Source: 20 units @ £1.00 = £20 <= £50 and <= 200 units
+        source = make_row(25, qty=20, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source", cost=1.00)
+        dest = make_row(100, qty=10, demand=40, capacity=500, branch_id="BR_DEST", branch_name="Dest", cost=1.00)
+        df = pd.DataFrame([source, dest])
+
+        recs = generate_recommendations(df)
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["action"], "TRANSFER")
+        self.assertTrue(rec["is_feasible"])
+        self.assertFalse(rec["is_high_impact"])
+        self.assertFalse(rec["requires_confirmation"])
+
+    def test_high_impact_flag_for_review_requires_confirmation(self):
+        """Infeasible high-impact item has is_high_impact=True and requires_confirmation=True."""
+        # Source: 100 units @ £5.00 = £500 > £50 HIGH_VALUE threshold
+        # Destinations have 0 demand -> forces FLAG_FOR_REVIEW
+        source = make_row(25, qty=100, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source", cost=5.00)
+        dest_zero = make_row(100, qty=10, demand=0, capacity=500, branch_id="BR_DEST", branch_name="Zero Dem")
+        df = pd.DataFrame([source, dest_zero])
+
+        recs = generate_recommendations(df)
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["action"], "FLAG_FOR_REVIEW")
+        self.assertFalse(rec["is_feasible"])
+        self.assertTrue(rec["is_high_impact"])
+        self.assertTrue(rec["requires_confirmation"],
+                        "High-impact FLAG_FOR_REVIEW must have requires_confirmation == True, never False")
+
+    def test_normal_flag_for_review_does_not_require_confirmation(self):
+        """Infeasible normal-impact item has is_high_impact=False and requires_confirmation=False."""
+        # Source: 15 units @ £1.00 = £15 <= £50 and <= 200 units
+        source = make_row(25, qty=15, demand=10, capacity=500, branch_id="BR_SRC", branch_name="Source", cost=1.00)
+        dest_zero = make_row(100, qty=10, demand=0, capacity=500, branch_id="BR_DEST", branch_name="Zero Dem")
+        df = pd.DataFrame([source, dest_zero])
+
+        recs = generate_recommendations(df)
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["action"], "FLAG_FOR_REVIEW")
+        self.assertFalse(rec["is_feasible"])
+        self.assertFalse(rec["is_high_impact"])
+        self.assertFalse(rec["requires_confirmation"])
+
+    def test_no_inconsistent_state_across_diverse_batches(self):
+        """Invariant: is_high_impact is never True while requires_confirmation is False."""
+        # Mix of batches: high-val feasible, high-qty feasible, normal feasible,
+        # high-val capacity-blocked (FLAG_FOR_REVIEW), normal capacity-blocked
+        batches = [
+            make_row(25, 300, 20, 500, "BR1", "B1", cost=1.00),   # high-qty (300 > 200)
+            make_row(25, 30, 20, 500, "BR2", "B2", cost=10.00),   # high-val (300 > 50)
+            make_row(25, 15, 20, 500, "BR3", "B3", cost=1.00),    # normal (15 <= 50)
+        ]
+        # Receivers
+        receivers = [
+            make_row(100, 5, 50, 500, "BR_REC1", "Rec 1"),
+        ]
+        df = pd.DataFrame(batches + receivers)
+        recs = generate_recommendations(df)
+
+        self.assertGreater(len(recs), 0)
+        for r in recs:
+            if r.get("action") in ["TRANSFER", "FLAG_FOR_REVIEW"]:
+                # Invariant: high impact must require confirmation
+                self.assertEqual(r["is_high_impact"], r["requires_confirmation"],
+                                 f"State inconsistency found for batch {r.get('batch_id')}: "
+                                 f"is_high_impact={r.get('is_high_impact')}, "
+                                 f"requires_confirmation={r.get('requires_confirmation')}")
+
+    def test_barcode_lookup_consistency(self):
+        """Barcode lookup recommendations maintain high-impact confirmation consistency."""
+        from barcode_lookup import lookup_barcode
+        from database import initialise_database, load_stock, get_connection
+
+        db_fd, temp_db = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        try:
+            initialise_database(temp_db)
+            conn = get_connection(temp_db)
+            # Add high value item
+            conn.execute(
+                "INSERT INTO stock (batch_id, medicine_name, branch_id, quantity, expiry_date, unit_cost_gbp, demand_per_week, branch_capacity_remaining) "
+                "VALUES ('B-HI-VAL', 'High Val Med', 'BR1', 50, '2026-10-15', 10.00, 10, 500)"
+            )
+            # Add receiver with zero demand (forces FLAG_FOR_REVIEW)
+            conn.execute(
+                "INSERT INTO stock (batch_id, medicine_name, branch_id, quantity, expiry_date, unit_cost_gbp, demand_per_week, branch_capacity_remaining) "
+                "VALUES ('B-REC', 'High Val Med', 'BR2', 10, '2027-01-01', 10.00, 0, 500)"
+            )
+            conn.commit()
+            conn.close()
+
+            path = tempfile.mktemp(suffix=".csv")
+            reg = BarcodeRegistry(path)
+            reg.register("1111222233334", "B-HI-VAL", "High Val Med")
+
+            res = lookup_barcode("1111222233334", registry=reg, stock_df=load_stock(temp_db))
+            self.assertTrue(res["found"])
+            self.assertIsNotNone(res["recommendation"])
+            rec = res["recommendation"]
+            self.assertEqual(rec["action"], "FLAG_FOR_REVIEW")
+            self.assertTrue(rec["is_high_impact"])
+            self.assertTrue(rec["requires_confirmation"],
+                            "Barcode lookup high impact FLAG_FOR_REVIEW must have requires_confirmation == True")
+        finally:
+            if os.path.exists(temp_db):
+                os.remove(temp_db)
+            if os.path.exists(path):
+                os.remove(path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 8 — Password Security & PBKDF2-HMAC-SHA256 Migration Tests
+# ─────────────────────────────────────────────────────────────────────────────
+from auth_config import (
+    hash_password,
+    verify_password,
+    is_valid_hash_format,
+    is_legacy_hash,
+    needs_rehash,
+    DEFAULT_ALGORITHM,
+    DEFAULT_ITERATIONS,
+    _MIGRATED_HASHES,
+)
+
+
+class TestPhase8PasswordSecurity(unittest.TestCase):
+    """
+    Phase 8 tests:
+    1. Correct password verification
+    2. Incorrect password rejection
+    3. Different salts producing different stored hashes
+    4. Password hash format validation
+    5. Migration/legacy handling for SHA-256
+    """
+
+    def test_correct_password_verification(self):
+        """1. Correct password verification against PBKDF2-HMAC-SHA256 hash."""
+        password = "SecurePharmacyPassword2026!"
+        stored_hash = hash_password(password)
+        self.assertTrue(verify_password(password, stored_hash))
+
+        # Test with varied passwords (special characters, unicode, spaces)
+        unicode_pass = "Pharmacie-Santé#123 💊"
+        unicode_hash = hash_password(unicode_pass)
+        self.assertTrue(verify_password(unicode_pass, unicode_hash))
+
+    def test_incorrect_password_rejection(self):
+        """2. Incorrect password rejection across various negative inputs."""
+        password = "CorrectPassword123"
+        stored_hash = hash_password(password)
+
+        # Wrong password
+        self.assertFalse(verify_password("WrongPassword123", stored_hash))
+        self.assertFalse(verify_password("correctpassword123", stored_hash))  # case sensitivity
+        self.assertFalse(verify_password("CorrectPassword123 ", stored_hash))  # trailing space
+
+        # Empty password
+        self.assertFalse(verify_password("", stored_hash))
+        self.assertFalse(verify_password(None, stored_hash))
+
+        # Empty or None stored hash
+        self.assertFalse(verify_password(password, ""))
+        self.assertFalse(verify_password(password, None))
+
+        # Corrupted or malformed stored hashes
+        self.assertFalse(verify_password(password, "malformed_hash_string"))
+        self.assertFalse(verify_password(password, "pbkdf2_sha256$not_a_number$salt$deadbeef"))
+        self.assertFalse(verify_password(password, "pbkdf2_sha256$1000$not_hex$deadbeef"))
+
+    def test_different_salts_producing_different_stored_hashes(self):
+        """3. Different salts producing different stored hashes for the same password."""
+        password = "SamePasswordForBoth"
+        hash1 = hash_password(password)
+        hash2 = hash_password(password)
+
+        # Different random salts must guarantee different stored strings
+        self.assertNotEqual(hash1, hash2)
+
+        # Extract salts
+        parts1 = hash1.split("$")
+        parts2 = hash2.split("$")
+        self.assertNotEqual(parts1[2], parts2[2], "Salts must be distinct random values")
+
+        # Both still verify successfully
+        self.assertTrue(verify_password(password, hash1))
+        self.assertTrue(verify_password(password, hash2))
+
+    def test_password_hash_format_validation(self):
+        """4. Password hash format validation adheres to pbkdf2_sha256$<iter>$<salt>$<hash>."""
+        valid_hash = hash_password("TestFormat123", iterations=1000)
+        self.assertTrue(is_valid_hash_format(valid_hash))
+
+        # Valid format checks
+        parts = valid_hash.split("$")
+        self.assertEqual(len(parts), 4)
+        self.assertEqual(parts[0], DEFAULT_ALGORITHM)
+        self.assertEqual(parts[1], "1000")
+        self.assertEqual(len(parts[2]), 32)  # 16 bytes = 32 hex chars
+
+        # Invalid format checks
+        self.assertFalse(is_valid_hash_format("sha256$1000$salt$hash"))  # wrong algo
+        self.assertFalse(is_valid_hash_format("pbkdf2_sha256$-100$salt$hash"))  # negative iterations
+        self.assertFalse(is_valid_hash_format("pbkdf2_sha256$abc$salt$hash"))  # non-integer iterations
+        self.assertFalse(is_valid_hash_format("pbkdf2_sha256$1000$$hash"))  # empty salt
+        self.assertFalse(is_valid_hash_format("pbkdf2_sha256$1000$salt$"))  # empty hash
+        self.assertFalse(is_valid_hash_format("pbkdf2_sha256$1000$nothexsalt!$abcd"))  # non-hex salt
+        self.assertFalse(is_valid_hash_format("pbkdf2_sha256$1000$abcd$nothexhash!"))  # non-hex hash
+        self.assertFalse(is_valid_hash_format("pbkdf2_sha256$1000$onlythree"))  # too few parts
+        self.assertFalse(is_valid_hash_format("pbkdf2_sha256$1000$salt$hash$extra"))  # too many parts
+        self.assertFalse(is_valid_hash_format(""))
+        self.assertFalse(is_valid_hash_format(None))
+        self.assertFalse(is_valid_hash_format(12345))
+
+    def test_migration_and_legacy_sha256_handling(self):
+        """5. Legacy SHA-256 hash detection, verification, and seamless in-memory migration."""
+        password = "LegacySecretPassword99"
+        legacy_hash = hashlib.sha256(password.encode()).hexdigest()
+
+        # Detection
+        self.assertTrue(is_legacy_hash(legacy_hash))
+        self.assertFalse(is_valid_hash_format(legacy_hash))
+        self.assertTrue(needs_rehash(legacy_hash))
+
+        # Verification of legacy hash
+        self.assertTrue(verify_password(password, legacy_hash))
+        self.assertFalse(verify_password("wrong_password", legacy_hash))
+
+        # Non-legacy PBKDF2 hash needs_rehash is False for standard iterations
+        current_hash = hash_password(password, iterations=DEFAULT_ITERATIONS)
+        self.assertFalse(is_legacy_hash(current_hash))
+        self.assertFalse(needs_rehash(current_hash, desired_iterations=DEFAULT_ITERATIONS))
+
+        # But if iterations differ, needs_rehash is True
+        old_iter_hash = hash_password(password, iterations=5000)
+        self.assertTrue(needs_rehash(old_iter_hash, desired_iterations=DEFAULT_ITERATIONS))
+
+        # Test seamless in-memory migration in authenticate_user
+        # Mock a legacy user in CREDENTIALS
+        import auth_config
+        original_env_p1_hash = os.environ.get("PHARMACIST1_PASSWORD_HASH")
+        original_env_p1_plain = os.environ.get("PHARMACIST1_PASSWORD")
+        try:
+            # Set legacy hash for pharmacist1
+            test_plain = "legacy_test_pass"
+            legacy_p1 = hashlib.sha256(test_plain.encode()).hexdigest()
+            os.environ["PHARMACIST1_PASSWORD_HASH"] = legacy_p1
+            if "PHARMACIST1_PASSWORD" in os.environ:
+                del os.environ["PHARMACIST1_PASSWORD"]
+            auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+
+            # Authenticate user with legacy credentials
+            user_info = authenticate_user("pharmacist1", test_plain)
+            self.assertIsNotNone(user_info)
+            self.assertEqual(user_info["name"], "Sarah Johnson")
+
+            # Confirm user was migrated in-memory to PBKDF2
+            upgraded_hash = auth_config._MIGRATED_HASHES.get("pharmacist1")
+            self.assertIsNotNone(upgraded_hash)
+            self.assertTrue(is_valid_hash_format(upgraded_hash))
+            self.assertFalse(needs_rehash(upgraded_hash))
+            self.assertTrue(verify_password(test_plain, upgraded_hash))
+
+            # Re-authenticating with the upgraded in-memory hash succeeds
+            user_info2 = authenticate_user("pharmacist1", test_plain)
+            self.assertIsNotNone(user_info2)
+        finally:
+            # Clean up
+            auth_config._MIGRATED_HASHES.pop("pharmacist1", None)
+            if original_env_p1_hash is not None:
+                os.environ["PHARMACIST1_PASSWORD_HASH"] = original_env_p1_hash
+            else:
+                os.environ.pop("PHARMACIST1_PASSWORD_HASH", None)
+            if original_env_p1_plain is not None:
+                os.environ["PHARMACIST1_PASSWORD"] = original_env_p1_plain
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 12 — SQLite Fallback & Database Error Handling Tests
+# ─────────────────────────────────────────────────────────────────────────────
+from database import (
+    DatabaseLoadError,
+    get_last_stock_load_error,
+)
+import sqlite3
+
+
+class TestPhase12DatabaseFallback(unittest.TestCase):
+    """
+    Regression tests for Phase 12:
+    1. Normal SQLite load succeeds.
+    2. First-time database initialization still works.
+    3. Database failure does NOT silently fall back to CSV.
+    4. Corrupted/invalid SQLite database is handled safely.
+    5. Existing valid CSV seed behavior remains intact where intended.
+    """
+
+    def setUp(self):
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp_dir.name, "test_phase12.db")
+
+    def tearDown(self):
+        self.tmp_dir.cleanup()
+
+    def test_1_normal_sqlite_load_succeeds(self):
+        """1. Normal SQLite load retrieves data stored in SQLite."""
+        initialise_database(self.db_path, seed=True)
+        df = load_stock(self.db_path)
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertFalse(df.empty)
+        self.assertIn("batch_id", df.columns)
+        self.assertIn("medicine_name", df.columns)
+        self.assertIn("quantity", df.columns)
+        self.assertIsNone(get_last_stock_load_error())
+        self.assertFalse(df.attrs.get("load_failed", False))
+
+    def test_2_first_time_database_initialization_works(self):
+        """2. First-time database initialization still works when DB file does not exist."""
+        uninit_db = os.path.join(self.tmp_dir.name, "first_time_setup.db")
+        self.assertFalse(os.path.exists(uninit_db))
+
+        # Calling load_stock on non-existent path triggers Case A auto-init + seed
+        df = load_stock(uninit_db)
+        self.assertTrue(os.path.exists(uninit_db))
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertFalse(df.empty)
+        self.assertIsNone(get_last_stock_load_error())
+        self.assertFalse(df.attrs.get("load_failed", False))
+
+    def test_3_database_failure_does_not_silently_fallback_to_csv(self):
+        """3. Database failure does NOT silently fall back to CSV inventory data."""
+        # Create an existing SQLite database that is missing the 'stock' table (schema failure)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("CREATE TABLE dummy_table (id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+        self.assertTrue(os.path.exists(self.db_path))
+
+        # Querying this database must NOT return CSV data (which has 600 rows)
+        df = load_stock(self.db_path)
+        self.assertTrue(df.empty, "Failed database load must return empty failure DataFrame, not CSV data")
+        self.assertTrue(df.attrs.get("load_failed"), "Failure state flag must be set on DataFrame")
+        self.assertIsNotNone(df.attrs.get("error"))
+        self.assertIn("stock", df.attrs["error"].lower())
+
+        # Global error tracker should also report the error
+        last_err = get_last_stock_load_error()
+        self.assertIsNotNone(last_err)
+        self.assertIn("stock", last_err.lower())
+
+        # If raise_on_error=True, DatabaseLoadError must be raised
+        with self.assertRaises(DatabaseLoadError):
+            load_stock(self.db_path, raise_on_error=True)
+
+    def test_4_corrupted_sqlite_database_handled_safely(self):
+        """4. Corrupted/invalid SQLite database is handled safely without crashing and without fallback."""
+        corrupted_path = os.path.join(self.tmp_dir.name, "corrupted.db")
+        # Write arbitrary garbage bytes to make it an invalid SQLite file
+        with open(corrupted_path, "wb") as f:
+            f.write(b"NOT A SQLITE FILE GARBAGE HEADER 1234567890\x00\xFF\xFE")
+
+        self.assertTrue(os.path.exists(corrupted_path))
+
+        # load_stock should safely return failure state rather than crashing or returning CSV
+        df = load_stock(corrupted_path)
+        self.assertTrue(df.empty)
+        self.assertTrue(df.attrs.get("load_failed"))
+        self.assertIsNotNone(df.attrs.get("error"))
+        self.assertIsNotNone(get_last_stock_load_error())
+
+        # With raise_on_error=True, it explicitly raises DatabaseLoadError
+        with self.assertRaises(DatabaseLoadError):
+            load_stock(corrupted_path, raise_on_error=True)
+
+    def test_5_existing_valid_csv_seed_behavior_remains_intact(self):
+        """5. Existing valid CSV seed behavior remains intact where intended."""
+        # Clean setup with seed=True
+        seed_db = os.path.join(self.tmp_dir.name, "seed_test.db")
+        initialise_database(seed_db, seed=True)
+        self.assertTrue(os.path.exists(seed_db))
+
+        df = load_stock(seed_db)
+        self.assertFalse(df.empty)
+        self.assertGreater(len(df), 0)
+        self.assertIsNone(get_last_stock_load_error())
+
+        # Also verify import_stock_from_csv still functions properly
+        csv_path = os.path.join(self.tmp_dir.name, "test_import.csv")
+        row = {
+            "batch_id": "PHASE12-BATCH-01",
+            "medicine_name": "Phase12 Medicine",
+            "category": "Antibiotic",
+            "branch_id": "BR01",
+            "branch_name": "Central",
+            "quantity": 55,
+            "expiry_date": "2026-12-31",
+            "unit_cost_gbp": 4.50,
+            "demand_per_week": 10,
+            "branch_capacity_remaining": 300,
+        }
+        pd.DataFrame([row]).to_csv(csv_path, index=False)
+        summary = import_stock_from_csv(csv_path, db_path=seed_db)
+        self.assertTrue(summary["success"])
+        self.assertEqual(summary["records_inserted"], 1)
+
+        # Confirm newly imported item is in SQLite
+        df_after = load_stock(seed_db)
+        matching = df_after[df_after["batch_id"] == "PHASE12-BATCH-01"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(int(matching.iloc[0]["quantity"]), 55)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 13 — Save Decision Audit Persistence & Error Handling Tests
+# ─────────────────────────────────────────────────────────────────────────────
+from database import (
+    DatabaseSaveError,
+    get_last_decision_save_error,
+)
+
+
+class TestPhase13SaveDecisionAudit(unittest.TestCase):
+    """
+    Regression tests for Phase 13:
+    1. Successful decision + audit insertion returns True and persists record.
+    2. Audit insertion failure returns False, sets error tracker, does not swallow silently.
+    3. Correct rollback/transaction behavior (no partial or inconsistent writes).
+    4. Caller receives/handles failure appropriately with raise_on_error=True.
+    5. Inconsistent CSV write prevented when SQLite write fails.
+    """
+
+    def setUp(self):
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp_dir.name, "test_phase13.db")
+        initialise_database(self.db_path, seed=False)
+
+    def tearDown(self):
+        self.tmp_dir.cleanup()
+
+    def test_1_successful_decision_and_audit_insertion(self):
+        """1. Successful decision returns True, sets error to None, and records in SQLite."""
+        ok = save_decision(
+            batch_id="P13-B1",
+            medicine="Amoxicillin",
+            action="CONFIRMED",
+            destination="North Branch (20 units)",
+            override_reason="",
+            user="pharmacist1",
+            source_branch="Central",
+            quantity=20,
+            system_recommendation="TRANSFER",
+            db_path=self.db_path,
+        )
+        self.assertTrue(ok, "save_decision must return True on successful insertion")
+        self.assertIsNone(get_last_decision_save_error(), "No error should be recorded on success")
+
+        # Verify record exists in SQLite
+        df = load_decisions(self.db_path)
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0]["batch_id"], "P13-B1")
+        self.assertEqual(df.iloc[0]["medicine"], "Amoxicillin")
+        self.assertEqual(int(df.iloc[0]["quantity"]), 20)
+
+    def test_2_audit_insertion_failure_surfaces_error(self):
+        """2. When SQLite insertion fails, save_decision returns False and surfaces error."""
+        # Corrupt the database by dropping the decisions table
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DROP TABLE decisions")
+        conn.commit()
+        conn.close()
+
+        # Call save_decision without raise_on_error
+        ok = save_decision(
+            batch_id="P13-FAIL",
+            medicine="TestMed",
+            action="CONFIRMED",
+            db_path=self.db_path,
+            raise_on_error=False,
+        )
+        self.assertFalse(ok, "save_decision must return False when insertion fails")
+        last_err = get_last_decision_save_error()
+        self.assertIsNotNone(last_err, "Error tracker must be populated on failure")
+        self.assertIn("P13-FAIL", last_err)
+        self.assertIn("decisions", last_err.lower())
+
+    def test_3_correct_rollback_and_transaction_behavior(self):
+        """3. Failed transaction rolls back and leaves no partial/corrupted records."""
+        # Insert one valid decision first
+        save_decision(
+            batch_id="P13-VALID-1",
+            medicine="Ibuprofen",
+            action="CONFIRMED",
+            quantity=10,
+            db_path=self.db_path,
+        )
+        df_before = load_decisions(self.db_path)
+        self.assertEqual(len(df_before), 1)
+
+        # Trigger a failure using an abort trigger on decisions table
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("CREATE TRIGGER fail_insert BEFORE INSERT ON decisions BEGIN SELECT RAISE(ABORT, 'Custom DB failure'); END;")
+        conn.commit()
+        conn.close()
+
+        ok = save_decision(
+            batch_id="P13-TRIGGER-FAIL",
+            medicine="Aspirin",
+            action="CONFIRMED",
+            quantity=50,
+            db_path=self.db_path,
+            raise_on_error=False,
+        )
+        self.assertFalse(ok)
+        self.assertIsNotNone(get_last_decision_save_error())
+        self.assertIn("Custom DB failure", get_last_decision_save_error())
+
+        # Verify rollback: database still has exactly 1 row (the original valid decision)
+        df_after = load_decisions(self.db_path)
+        self.assertEqual(len(df_after), 1)
+        self.assertEqual(df_after.iloc[0]["batch_id"], "P13-VALID-1")
+
+    def test_4_caller_handles_failure_with_raise_on_error(self):
+        """4. With raise_on_error=True, DatabaseSaveError is raised to caller."""
+        corrupt_path = os.path.join(self.tmp_dir.name, "corrupt_audit.db")
+        with open(corrupt_path, "wb") as f:
+            f.write(b"NOT A SQLITE FILE GARBAGE")
+
+        with self.assertRaises(DatabaseSaveError) as ctx:
+            save_decision(
+                batch_id="P13-RAISE",
+                medicine="Paracetamol",
+                action="CONFIRMED",
+                db_path=corrupt_path,
+                raise_on_error=True,
+            )
+        self.assertIn("P13-RAISE", str(ctx.exception))
+        self.assertIsNotNone(get_last_decision_save_error())
+
+    def test_5_inconsistent_csv_write_prevented_on_sqlite_failure(self):
+        """5. CSV write is NOT performed if the primary SQLite transaction fails."""
+        # Drop table to cause SQLite failure
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DROP TABLE decisions")
+        conn.commit()
+        conn.close()
+
+        csv_p = os.path.join(self.tmp_dir.name, "should_not_exist.csv")
+        ok = save_decision(
+            batch_id="P13-CSV-INCONSISTENT",
+            medicine="TestMed",
+            action="CONFIRMED",
+            db_path=self.db_path,
+            csv_path=csv_p,
+            raise_on_error=False,
+        )
+        self.assertFalse(ok)
+        # CSV file must NOT have been created/written to prevent inconsistent audit logs
+        self.assertFalse(os.path.exists(csv_p), "CSV file should not be created if SQLite write fails")

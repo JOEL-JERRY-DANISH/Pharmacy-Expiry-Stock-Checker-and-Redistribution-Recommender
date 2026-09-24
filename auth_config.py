@@ -13,6 +13,9 @@
 
 import os
 import hashlib
+import hmac
+import secrets
+from typing import Optional, Dict, Any
 
 try:
     from dotenv import load_dotenv
@@ -20,12 +23,133 @@ try:
 except ImportError:
     pass
 
+DEFAULT_ALGORITHM = "pbkdf2_sha256"
+DEFAULT_ITERATIONS = 100_000
+SALT_BYTES = 16  # 16 bytes = 128 bits entropy -> 32 hex chars
 
-def _hash_password(raw_password: str) -> str:
-    """Return the SHA-256 hex digest of *raw_password*, or '' if falsy."""
+# In-memory caches to avoid re-hashing plaintext on every credential query
+# and to store seamlessly migrated credentials during runtime sessions.
+_MIGRATED_HASHES: Dict[str, str] = {}
+
+
+def hash_password(raw_password: str, salt: Optional[str] = None, iterations: int = DEFAULT_ITERATIONS) -> str:
+    """
+    Derive a secure salted password hash using PBKDF2-HMAC-SHA256.
+
+    Format: pbkdf2_sha256$<iterations>$<salt_hex>$<hash_hex>
+    """
     if not raw_password:
         return ""
-    return hashlib.sha256(raw_password.encode()).hexdigest()
+    if salt is None:
+        salt = secrets.token_hex(SALT_BYTES)
+
+    derived = hashlib.pbkdf2_hmac(
+        "sha256",
+        raw_password.encode("utf-8"),
+        salt.encode("utf-8"),
+        iterations,
+    )
+    return f"{DEFAULT_ALGORITHM}${iterations}${salt}${derived.hex()}"
+
+
+def _hash_password(raw_password: str) -> str:
+    """Backward-compatible alias for hashing passwords using PBKDF2-HMAC-SHA256."""
+    return hash_password(raw_password)
+
+
+def is_valid_hash_format(hash_str: str) -> bool:
+    """
+    Check if a string adheres to the pbkdf2_sha256$<iterations>$<salt>$<hash> format.
+    """
+    if not hash_str or not isinstance(hash_str, str):
+        return False
+    parts = hash_str.split("$")
+    if len(parts) != 4:
+        return False
+    algo, iter_str, salt, hash_val = parts
+    if algo != DEFAULT_ALGORITHM:
+        return False
+    try:
+        iterations = int(iter_str)
+        if iterations <= 0:
+            return False
+    except ValueError:
+        return False
+    if not salt or not hash_val:
+        return False
+    try:
+        int(salt, 16)
+        int(hash_val, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def is_legacy_hash(hash_str: str) -> bool:
+    """
+    Check if a string is a legacy unsalted SHA-256 hex string (64 hex characters).
+    """
+    if not hash_str or not isinstance(hash_str, str):
+        return False
+    if len(hash_str) != 64 or "$" in hash_str:
+        return False
+    try:
+        int(hash_str, 16)
+        return True
+    except ValueError:
+        return False
+
+
+def needs_rehash(stored_hash: str, desired_iterations: int = DEFAULT_ITERATIONS) -> bool:
+    """
+    Check if a stored hash needs to be migrated/upgraded (e.g. legacy SHA-256 or different iteration count).
+    """
+    if not stored_hash or not isinstance(stored_hash, str):
+        return False
+    if is_legacy_hash(stored_hash):
+        return True
+    parts = stored_hash.split("$")
+    if len(parts) == 4 and parts[0] == DEFAULT_ALGORITHM:
+        try:
+            return int(parts[1]) != desired_iterations
+        except ValueError:
+            return True
+    return True
+
+
+def verify_password(raw_password: str, stored_hash: str) -> bool:
+    """
+    Verify raw_password against stored_hash safely in constant time.
+    Supports both standard PBKDF2-HMAC-SHA256 and legacy SHA-256 (for migration).
+    Never logs passwords or hashes.
+    """
+    if not raw_password or not stored_hash:
+        return False
+    raw_str = str(raw_password)
+    stored_str = str(stored_hash).strip()
+
+    # 1. PBKDF2 format
+    if is_valid_hash_format(stored_str):
+        parts = stored_str.split("$")
+        _, iter_str, salt, expected_hash = parts
+        try:
+            iterations = int(iter_str)
+            derived = hashlib.pbkdf2_hmac(
+                "sha256",
+                raw_str.encode("utf-8"),
+                salt.encode("utf-8"),
+                iterations,
+            )
+            return hmac.compare_digest(derived.hex(), expected_hash)
+        except Exception:
+            return False
+
+    # 2. Legacy SHA-256 hash
+    if is_legacy_hash(stored_str):
+        computed = hashlib.sha256(raw_str.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(computed.lower(), stored_str.lower())
+
+    return False
 
 
 def _get_hash_from_secrets(key: str) -> str:
@@ -48,22 +172,28 @@ def _get_hash_from_secrets(key: str) -> str:
         return ""
 
 
-def _resolve_hash(secrets_key: str, env_hash_key: str, env_plain_key: str) -> str:
+def _resolve_hash(secrets_key: str, env_hash_key: str, env_plain_key: str, username: str = "") -> str:
     """
     Return the password hash for one user, trying sources in priority order.
 
     Priority:
+      0. In-memory migrated hash (active session upgrade)
       1. Streamlit secrets  [auth] <secrets_key>
-      2. env var            <env_hash_key>   (pre-computed hash)
-      3. env var            <env_plain_key>  (plaintext, hashed here)
+      2. env var            <env_hash_key>   (pre-computed hash, PBKDF2 or legacy)
+      3. env var            <env_plain_key>  (plaintext, hashed at runtime via PBKDF2)
       4. empty string       → login rejected, no crash
     """
-    value = (
-        _get_hash_from_secrets(secrets_key)
-        or os.getenv(env_hash_key, "")
-        or _hash_password(os.getenv(env_plain_key, ""))
-    )
-    return value
+    if username and username in _MIGRATED_HASHES:
+        return _MIGRATED_HASHES[username]
+
+    val = _get_hash_from_secrets(secrets_key) or os.getenv(env_hash_key, "")
+    if val:
+        return val
+
+    plain = os.getenv(env_plain_key, "")
+    if plain:
+        return hash_password(plain)
+    return ""
 
 
 def get_credentials() -> dict:
@@ -77,16 +207,19 @@ def get_credentials() -> dict:
         "pharmacist1_password_hash",
         "PHARMACIST1_PASSWORD_HASH",
         "PHARMACIST1_PASSWORD",
+        username="pharmacist1",
     )
     p2_hash    = _resolve_hash(
         "pharmacist2_password_hash",
         "PHARMACIST2_PASSWORD_HASH",
         "PHARMACIST2_PASSWORD",
+        username="pharmacist2",
     )
     admin_hash = _resolve_hash(
         "admin_password_hash",
         "ADMIN_PASSWORD_HASH",
         "ADMIN_PASSWORD",
+        username="admin",
     )
 
     return {
@@ -137,16 +270,22 @@ def authenticate_user(username: str, password: str):
 
     Returns the user info dictionary if credentials are valid, or None otherwise.
     Safe against None, empty strings, and nonexistent usernames.
+    Transparently upgrades legacy SHA-256 hashes in memory upon successful verification.
     """
     if not username or not password:
         return None
     users = get_credentials().get("usernames", {})
-    user_info = users.get(str(username).strip())
+    uname = str(username).strip()
+    user_info = users.get(uname)
     if not user_info:
         return None
     stored_hash = user_info.get("password", "")
     if not stored_hash:
         return None
-    if _hash_password(str(password)) == stored_hash:
+    if verify_password(str(password), stored_hash):
+        if needs_rehash(stored_hash):
+            new_hash = hash_password(str(password))
+            _MIGRATED_HASHES[uname] = new_hash
+            user_info["password"] = new_hash
         return user_info
     return None

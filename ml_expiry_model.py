@@ -61,7 +61,7 @@ class MLExpiryPredictor:
             if "expiry_date" in data.columns:
                 now = datetime.today()
                 data["days_to_expiry"] = (
-                    pd.to_datetime(data["expiry_date"], errors="coerce") - now
+                    pd.to_datetime(data["expiry_date"], format="%Y-%m-%d", errors="coerce") - now
                 ).dt.days.fillna(0).astype(int)
             elif "dte" in data.columns:
                 data["days_to_expiry"] = data["dte"].fillna(0).astype(int)

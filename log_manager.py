@@ -105,8 +105,8 @@ def save_entry(
     # ── Standard operational path ────────────────────────────────────────────
     if LOG_PATH == "data/decision_log.csv":
         try:
-            from database import save_decision
-            save_decision(
+            from database import save_decision, get_last_decision_save_error
+            ok = save_decision(
                 batch_id=batch_id, medicine=medicine, action=std_action,
                 destination=destination, override_reason=override_reason,
                 user=user, source_branch=source_branch,
@@ -114,6 +114,9 @@ def save_entry(
                 final_decision=final_decision,
                 # csv_path intentionally omitted — SQLite only
             )
+            if not ok:
+                err = get_last_decision_save_error()
+                print(f"Warning: SQLite decision save failed for batch '{batch_id}': {err}")
         except Exception as e:
             print(f"Notice: SQLite decision save: {e}")
 
