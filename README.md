@@ -2,7 +2,7 @@
 
 An intelligent clinical pharmacy decision-support system that proactively identifies near-expiry medicines across pharmacy branches and recommends stock redistributions to reduce clinical waste and help prevent localized medicine shortages.
 
-The system combines a **deterministic, explainable rule-based recommendation engine** with a **supporting machine learning expiry risk classification layer** (Random Forest). All clinical allocations enforce strict safety bounds—including destination demand, storage capacity, shelf-life, and transit feasibility. Pharmacists retain full decision authority with mandatory justification for clinical overrides, while an immutable, transactional audit log persists all actions to SQLite and CSV.
+The system combines a **deterministic, explainable rule-based recommendation engine** with a **supporting machine learning expiry risk classification layer** (Random Forest). All clinical allocations enforce strict safety bounds—including destination demand, storage capacity, shelf-life, and transit feasibility. Pharmacists retain full decision authority with mandatory justification for clinical overrides, while a transactional audit log records decisions in SQLite and CSV.
 
 ---
 
@@ -34,7 +34,7 @@ The system combines a **deterministic, explainable rule-based recommendation eng
 
 ## ⚡ Quick Start
 
-Get the application running locally in under two minutes:
+Get the application running locally with the following steps:
 
 ```bash
 # 1. Clone the repository and enter the directory
@@ -58,22 +58,22 @@ streamlit run app.py
 ```
 
 Open [http://localhost:8501](http://localhost:8501) in your browser.
-- **Pharmacist Users:** `pharmacist1` (Central Pharmacy), `pharmacist2` (North Branch)
-- **Administrator:** `admin` (Full network visibility & admin analytics)
-- *Passwords are configured in your local `.env` or `.streamlit/secrets.toml` file.*
+- **Demo Pharmacist Users:** `pharmacist1` (Central Pharmacy), `pharmacist2` (North Branch)
+- **Demo Administrator:** `admin` (Full network visibility & admin analytics)
+- *Passwords are configured locally through `.env` or `.streamlit/secrets.toml` and should never be committed to the repository.*
 
 ---
 
 ## 1. Problem Statement
 
-Community pharmacies managing complex, multi-prescription dispensing workflows routinely hold medicines that approach expiry before local demand can absorb them. Traditional stock management relies on periodic physical shelf checks and spreadsheet records. By the time near-expiry batches are discovered:
+Community pharmacies managing complex dispensing workflows may hold medicines that approach expiry before local demand can absorb them. Traditional stock management relies on periodic physical shelf checks and spreadsheet records. By the time near-expiry batches are discovered:
 
-- **Direct Financial Waste:** Expired medicines must be disposed of under hazardous clinical waste protocols, causing financial loss to the pharmacy network.
+- **Direct Financial Waste:** Expired medicines generally require disposal through applicable pharmaceutical or clinical waste procedures, creating financial and operational costs for the pharmacy network.
 - **Patient Supply Disruption:** While one branch disposes of excess near-expiry stock, a neighboring branch often experiences shortages of the exact same medicine.
 - **Transit Feasibility Window Lost:** Medicines discovered with minimal shelf life cannot safely be packaged, shipped, received, and dispensed before expiration.
 - **Absence of Governance & Audit Trails:** Manual ad-hoc transfers lack structured documentation detailing who authorized a redistribution, why an alternative branch was selected, or why a recommended transfer was rejected.
 
-There is a critical need for an automated decision-support system that continuously monitors branch inventory, calculates absorption capacity across the network, generates explainable redistribution recommendations, and maintains an immutable audit trail.
+There is a need for an automated decision-support system that analyzes branch inventory, calculates absorption capacity across the network, generates explainable redistribution recommendations, and maintains a transactional audit trail.
 
 ---
 
@@ -81,7 +81,7 @@ There is a critical need for an automated decision-support system that continuou
 
 | # | Objective | Implementation Status |
 |---|-----------|-----------------------|
-| 1 | Automatically identify critical (≤7d), near-expiry (8–30d), and watch (31–90d) batches | ✅ COMPLETED |
+| 1 | Identify critical (≤7d), near-expiry (8–30d), and watch (31–90d) batches | ✅ COMPLETED |
 | 2 | Calculate deterministic, explainable risk scores (0–150 points) based on urgency, volume, and cost | ✅ COMPLETED |
 | 3 | Recommend redistribution routes to branches with verified dispensing demand and storage capacity | ✅ COMPLETED |
 | 4 | Support split allocations across multiple receiving branches without exceeding available stock | ✅ COMPLETED |
@@ -93,9 +93,9 @@ There is a critical need for an automated decision-support system that continuou
 | 10 | Prevent silent fallback to stale CSV data when operational database errors occur | ✅ COMPLETED |
 | 11 | Resolve physical GTIN barcodes to batch records, including historical tracking of superseded barcodes | ✅ COMPLETED |
 | 12 | Secure user authentication using salted PBKDF2-HMAC-SHA256 with legacy migration support | ✅ COMPLETED |
-| 13 | Provide role-restricted administrative analytics with live network health and financial exposure metrics | ✅ COMPLETED |
+| 13 | Provide role-restricted administrative analytics with current network health and financial exposure metrics | ✅ COMPLETED |
 | 14 | Integrate a supporting Random Forest ML model to predict expiry risk without overriding safety rules | ✅ COMPLETED |
-| 15 | Verify system integrity through comprehensive automated tests (210 passing tests) | ✅ COMPLETED |
+| 15 | Verify implemented functionality through comprehensive automated tests (210 passing tests) | ✅ COMPLETED |
 
 ---
 
@@ -103,13 +103,13 @@ There is a critical need for an automated decision-support system that continuou
 
 | Dimension | Legacy Manual Process | Proposed Intelligent Recommender |
 |-----------|------------------------|----------------------------------|
-| **Detection Timing** | Reactive during monthly/quarterly stock counts; often too late for transfer. | Automated and continuous; monitors shelf life daily against branch dispensing rates. |
+| **Detection Timing** | Reactive during monthly/quarterly stock counts; often too late for transfer. | Automated during inventory analysis; evaluates shelf life against branch dispensing rates. |
 | **Destination Matching** | Informal telephone calls or spreadsheet guessing without capacity visibility. | Deterministic matching based on remaining shelf life, weekly demand, and available storage. |
 | **Allocation Logic** | Single-branch subjective guesswork. | Multi-branch split allocation strictly bounded by source quantity, branch demand, and capacity. |
 | **Safety Enforcement** | Human-error prone; expired stock may inadvertently be transferred. | Hard rule enforcement; expired stock, zero-demand, and zero-capacity destinations are strictly blocked. |
 | **Machine Learning** | None. | Random Forest classifier providing supplementary expiry risk probabilities with safe rule-based fallback. |
 | **Barcode Integration** | Manual lookup or separate standalone POS lookup. | Native barcode resolution tracking active and superseded barcodes (repackaging, serialization). |
-| **Audit Logging** | Paper transfer slips or untracked verbal agreements. | Immutable 11-field transactional SQLite audit log + CSV export with mandatory override justification. |
+| **Audit Logging** | Paper transfer slips or untracked verbal agreements. | 11-field transactional SQLite audit log + CSV export with mandatory override justification. |
 | **Database Reliability** | Vulnerable to stale data or unhandled corruption. | Transactional ACID updates; database failures are surfaced immediately rather than serving stale CSVs. |
 | **Security** | Shared passwords or unhashed local text files. | PBKDF2-HMAC-SHA256 password hashing (100,000 rounds, 128-bit salt, `hmac.compare_digest`). |
 
@@ -185,7 +185,7 @@ There is a critical need for an automated decision-support system that continuou
                   └────────────────────────────────────────┘
 ```
 
-> **Safety Architecture Rule:** Rule-based safety constraints always take absolute precedence. Machine learning outputs serve strictly as an advisory signal and can never override clinical safety boundaries.
+> **Safety Architecture Rule:** Rule-based safety constraints take precedence over machine learning outputs. Machine learning outputs serve strictly as an advisory signal and cannot override the defined safety boundaries.
 
 ---
 
@@ -243,7 +243,7 @@ When allocating stock from a source batch across destination branches:
 3. **Absorption Percentage:** Calculated per destination to quantify clinical utility:
    $$\text{Absorption Pct} = \begin{cases} 0.0\% & \text{if } \text{Transfer}_i \le 0 \\ \min\left(100.0, \frac{\text{Expected Demand}_i}{\text{Transfer}_i} \times 100.0\right) & \text{if } \text{Transfer}_i > 0 \end{cases}$$
 
-### 7.4 Hard Safety Rules (Guaranteed by Code)
+### 7.4 Hard Safety Rules (Enforced by the Implementation)
 
 The recommendation engine strictly enforces the following non-negotiable boundaries:
 
@@ -320,7 +320,7 @@ CREATE TABLE decisions (
 
 ## 9. Barcode Management
 
-Implemented across [`barcode_registry.py`](file:///d:/project/rtc/project/barcode_registry.py) and [`barcode_lookup.py`](file:///d:/project/rtc/project/barcode_lookup.py):
+Implemented across [`barcode_registry.py`](barcode_registry.py) and [`barcode_lookup.py`](barcode_lookup.py):
 
 - **Active Barcode Resolution:** Scanning or entering an active GTIN barcode instantly retrieves medicine details, batch ID, current branch stock, expiry date, urgency scoring, and real-time redistribution recommendations.
 - **Superseded Barcode Lifecycle:** Pharmaceutical supply chains frequently re-label batches due to repackaging, regulatory serialization (EU Falsified Medicines Directive), or manufacturer updates. When a barcode is updated:
@@ -332,13 +332,13 @@ Implemented across [`barcode_registry.py`](file:///d:/project/rtc/project/barcod
 
 ## 10. Authentication & Security
 
-Implemented in [`auth_config.py`](file:///d:/project/rtc/project/auth_config.py) and [`app.py`](file:///d:/project/rtc/project/app.py):
+Implemented in [`auth_config.py`](auth_config.py) and [`app.py`](app.py):
 
 ### 10.1 PBKDF2-HMAC-SHA256 Password Hashing
 
 The authentication architecture uses key derivation via PBKDF2-HMAC-SHA256:
 
-- **100,000 Iterations:** Exceeds standard NIST recommendations for PBKDF2-HMAC-SHA256, providing strong resistance against GPU-accelerated brute-force attacks.
+- **100,000 Iterations:** Password derivation uses 100,000 PBKDF2-HMAC-SHA256 iterations.
 - **128-Bit Cryptographically Secure Salt:** Each password hash utilizes 16 bytes (32 hex characters) of cryptographically strong random salt generated via `secrets.token_hex(16)`.
 - **Constant-Time Verification:** Hash comparison is performed using `hmac.compare_digest()` to eliminate timing-attack vulnerabilities.
 - **Standardized Hash Serialization:** Stored in the standard modular format:
@@ -361,7 +361,10 @@ In accordance with strict security standards, `_PLAINTEXT_HASH_CACHE` has been c
 2. **Environment Variable Hashes** (`*_PASSWORD_HASH`)
 3. **Environment Variable Plaintext** (`*_PASSWORD`, hashed on demand)
 
-### 10.5 Role-Based Access Control (RBAC)
+### 10.5 Role-Based Access Control (RBAC) — Demo Accounts
+
+The names below are fictional demonstration identities.
+
 
 | Username | Name | Branch Assignment | Permitted Interfaces |
 |----------|------|-------------------|----------------------|
@@ -373,9 +376,9 @@ In accordance with strict security standards, `_PLAINTEXT_HASH_CACHE` has been c
 
 ## 11. Audit Logging & Governance
 
-Implemented in [`log_manager.py`](file:///d:/project/rtc/project/log_manager.py) and [`database.py`](file:///d:/project/rtc/project/database.py):
+Implemented in [`log_manager.py`](log_manager.py) and [`database.py`](database.py):
 
-Every clinical decision creates an immutable 11-field audit record:
+Every recorded clinical decision creates an 11-field audit record:
 
 ```
 [Timestamp] [User] [Medicine] [Batch ID] [Source Branch] [Destination Branch]
@@ -383,7 +386,7 @@ Every clinical decision creates an immutable 11-field audit record:
 ```
 
 - **Mandatory Clinical Justification:** When a pharmacist overrides a system recommendation (`OVERRIDDEN`), the UI requires a clinical justification reason, which is committed to the audit log.
-- **Dual Persistence:** Decisions are written transactionally to the SQLite `decisions` table and synchronized to `data/decision_log.csv` for inspection and external compliance exports.
+- **Dual Persistence:** Decisions are written transactionally to the SQLite `decisions` table and synchronized to `data/decision_log.csv` for inspection and structured export.
 - **Credential Protection:** Secrets, passwords, session tokens, and password hashes are strictly excluded from logs, error messages, and audit tables.
 
 ---
@@ -412,11 +415,11 @@ Accessible at `pages/admin_dashboard.py` exclusively to users with `branch = "Al
 
 ## 13. AI / ML Component
 
-Implemented in [`ml_expiry_model.py`](file:///d:/project/rtc/project/ml_expiry_model.py):
+Implemented in [`ml_expiry_model.py`](ml_expiry_model.py):
 
 ### 13.1 Purpose & Role
 
-The ML model provides a **supplementary advisory signal** estimating the probability that a medicine batch will expire before local branch demand can dispense it. It evaluates multidimensional inventory attributes to output:
+The ML model provides a **supplementary advisory signal** estimating an expiry-risk probability based on the inventory features used by the model. It evaluates multidimensional inventory attributes to output:
 - **Predicted Risk Class:** `Low`, `Medium`, or `High`
 - **Expiry Risk Probability:** Continuous float from `0.0` to `1.0`
 
@@ -452,7 +455,7 @@ If the machine learning predictor fails to load, encounters corrupt input, or th
 
 ## 14. Dataset Description & Clinical Disclaimer
 
-The dataset consists of **600 medicine batch records** across 4 branches and 10 representative pharmaceutical products:
+The dataset consists of **600 synthetic medicine batch records** across 4 branches and 10 representative pharmaceutical products:
 
 | Property | Dataset Value |
 |----------|---------------|
@@ -507,6 +510,8 @@ Generate secure PBKDF2 password hashes using Python:
 ```bash
 python -c "import auth_config; print(auth_config.hash_password('your_chosen_password'))"
 ```
+
+> **Security:** Never commit `.streamlit/secrets.toml` or `.env` files containing real passwords, API keys, email credentials, or other secrets. Use the provided example files as templates only.
 
 Configure `.streamlit/secrets.toml`:
 ```toml
@@ -569,7 +574,7 @@ Evaluates the Random Forest model on the dataset and writes metrics to `data/ml_
 
 ## 17. Testing & Verification (Actual Testing Results)
 
-The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](file:///d:/project/rtc/project/test_edge_cases.py). The test suite has evolved from the initial foundational suite (59 / 59 tests) to **210 passing tests** covering every functional boundary, edge case, and safety constraint across the entire project lifecycle.
+The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](test_edge_cases.py). The suite has evolved from the initial foundational suite to **210 passing tests** covering functional boundaries, edge cases, and defined safety constraints across the project.
 
 ### Run the Full Test Suite
 
@@ -585,7 +590,7 @@ pytest -q
 ........................................................................ [ 34%]
 ........................................................................ [ 68%]
 ..................................................................       [100%]
-210 passed in 24.29s
+210 passed
 ```
 
 ### Test Suite Architecture (29 Test Classes, 210 Tests)
@@ -626,7 +631,7 @@ pytest -q
 
 ## 18. Machine Learning Evaluation
 
-All metrics below are generated directly from the hold-out test set ($N = 150$) and 5-fold cross-validation ($N = 600$) using [`evaluate_ml.py`](file:///d:/project/rtc/project/evaluate_ml.py) and stored in `data/ml_evaluation_results.json`.
+All metrics below are generated directly from the hold-out test set ($N = 150$) and 5-fold cross-validation ($N = 600$) using [`evaluate_ml.py`](evaluate_ml.py) and stored in `data/ml_evaluation_results.json`.
 
 ### Dataset Split & Distribution
 - **Total Samples:** 600 batches
@@ -658,7 +663,7 @@ All metrics below are generated directly from the hold-out test set ($N = 150$) 
 ```
                     Predicted Class
                   High   Low   Medium
-Actual  High   [   53      0      0   ]   <-- 100% High Risk Detected
+Actual  High   [   53      0      0   ]   <-- 100% High Risk Recall in This Test Set
 Actual  Low    [    6     81      1   ]
 Actual  Medium [    0      6      3   ]
 ```
@@ -676,10 +681,10 @@ Actual  Medium [    0      6      3   ]
 
 ### Feature Importance (Mean Decrease in Impurity)
 
-| Rank | Feature | Importance | Clinical Interpretation |
+| Rank | Feature | Importance | Interpretation |
 |:----:|---------|:----------:|-------------------------|
-| 1 | `days_to_expiry` | **0.5892** | Proximity to expiry is the dominant predictor of wastage |
-| 2 | `stock_to_demand_ratio` | 0.1239 | Excess stock relative to dispensing rate drives expiry risk |
+| 1 | `days_to_expiry` | **0.5892** | Proximity to expiry had the highest feature importance in this model |
+| 2 | `stock_to_demand_ratio` | 0.1239 | Higher stock-to-demand ratios had greater feature importance in this model |
 | 3 | `avg_daily_demand` | 0.0857 | Local branch dispensing velocity |
 | 4 | `quantity` | 0.0816 | Physical units at risk |
 | 5 | `stock_value` | 0.0476 | Financial exposure (£) |
@@ -697,7 +702,7 @@ Actual  Medium [    0      6      3   ]
 3. **Algorithmic Labels:** Training labels are derived mathematically from demand absorption heuristics rather than historical clinical disposal outcomes.
 
 ### System & Infrastructure Limitations
-1. **No Direct PMR/EHR Integration:** The system operates standalone and does not currently integrate with live UK NHS electronic prescribing feeds (EPS) or pharmacy management systems (EMIS, RxWeb).
+1. **No Direct PMR/EHR Integration:** The system operates standalone and does not currently integrate with live electronic prescribing, pharmacy management, or electronic health-record systems.
 2. **Barcode Input:** Barcode resolution is demonstrated via text input. Hardware scanner support or camera-based WebRTC scanning is not natively bundled.
 3. **Single-Node Execution:** Designed for local or single-instance Streamlit deployment. Multi-node cloud clustering requires an external PostgreSQL/MySQL database configuration.
 
@@ -713,7 +718,7 @@ Actual  Medium [    0      6      3   ]
 | **Camera-Based Barcode Scanning** | Integrated in-browser HTML5 barcode scanner using device camera | Medium |
 | **Probability Calibration** | Platt scaling / isotonic regression for calibrated confidence scores | Medium |
 | **Multi-Tenancy** | Organization-level isolation for regional pharmacy groups and hospital trusts | Medium |
-| **Automated Regulatory Reporting** | One-click export of MHRA-compliant waste reduction and audit certificates | Low |
+| **Automated Regulatory Reporting** | Configurable export of waste-reduction and audit information for review against applicable regulatory requirements | Low |
 
 ---
 
