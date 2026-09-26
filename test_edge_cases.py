@@ -4602,3 +4602,165 @@ class TestPhase13SaveDecisionAudit(unittest.TestCase):
         self.assertFalse(ok)
         # CSV file must NOT have been created/written to prevent inconsistent audit logs
         self.assertFalse(os.path.exists(csv_p), "CSV file should not be created if SQLite write fails")
+
+
+# ------------------------------------------------------------
+# Decision-Save Failure Handling Regression Tests
+# ------------------------------------------------------------
+class TestDecisionSaveFailureHandling(unittest.TestCase):
+    """
+    Regression tests verifying that decision save failures prevent session-state updates:
+    1. Successful decision save returns True and allows session state confirmation.
+    2. Failed decision save returns False and prevents batch from being added to confirmed set.
+    3. Failed override save returns False and prevents batch from being added to overridden set.
+    4. Split transfer failure on first destination halts and returns False.
+    5. Split transfer failure on subsequent destination halts and returns False.
+    6. dual_save reflects boolean return status of save_decision.
+    7. Error message is standard and informative.
+    """
+
+    def setUp(self):
+        self.rec_single = {
+            "batch_id": "BATCH-FAIL-001",
+            "medicine_name": "Atorvastatin 20mg",
+            "branch_name": "Downtown Pharmacy",
+            "action": "TRANSFER",
+            "quantity": 50,
+            "destinations": [{"dest_branch_name": "Uptown Health", "transfer_quantity": 50}],
+        }
+        self.rec_split = {
+            "batch_id": "BATCH-FAIL-SPLIT",
+            "medicine_name": "Amoxicillin 500mg",
+            "branch_name": "North Clinic",
+            "action": "TRANSFER",
+            "quantity": 100,
+            "is_split": True,
+            "split_destinations": [
+                {"branch_name": "Branch East", "transfer_quantity": 60},
+                {"branch_name": "Branch West", "transfer_quantity": 40},
+            ],
+            "destinations": [],
+        }
+
+    def test_record_recommendation_action_success_returns_true(self):
+        """When save_decision succeeds, record_recommendation_action returns True."""
+        from app import record_recommendation_action
+        with patch("app.dual_save", return_value=True):
+            res = record_recommendation_action(
+                rec=self.rec_single,
+                action="CONFIRMED",
+                user_name="pharmacist1",
+                destination="Uptown Health",
+            )
+        self.assertTrue(res)
+
+    def test_record_recommendation_action_failure_returns_false(self):
+        """When save_decision fails, record_recommendation_action returns False."""
+        from app import record_recommendation_action
+        with patch("app.dual_save", return_value=False):
+            res = record_recommendation_action(
+                rec=self.rec_single,
+                action="CONFIRMED",
+                user_name="pharmacist1",
+                destination="Uptown Health",
+            )
+        self.assertFalse(res)
+
+    def test_failed_save_does_not_mutate_confirmed_session_state(self):
+        """When persistence fails, batch must NOT be added to confirmed session state."""
+        from app import record_recommendation_action
+        confirmed_set = set()
+        uid = self.rec_single["batch_id"]
+
+        with patch("app.dual_save", return_value=False):
+            saved = record_recommendation_action(
+                rec=self.rec_single,
+                action="CONFIRMED",
+                user_name="pharmacist1",
+                destination="Uptown Health",
+            )
+            if saved:
+                confirmed_set.add(uid)
+
+        self.assertFalse(saved)
+        self.assertNotIn(uid, confirmed_set, "Batch must not be added to confirmed set on save failure")
+
+    def test_failed_override_does_not_mutate_overridden_session_state(self):
+        """When persistence fails, batch must NOT be added to overridden session state."""
+        from app import record_recommendation_action
+        overridden_set = set()
+        uid = self.rec_single["batch_id"]
+
+        with patch("app.dual_save", return_value=False):
+            saved = record_recommendation_action(
+                rec=self.rec_single,
+                action="OVERRIDDEN",
+                user_name="pharmacist1",
+                destination="Uptown Health",
+                override_reason="Doctor requested hold",
+            )
+            if saved:
+                overridden_set.add(uid)
+
+        self.assertFalse(saved)
+        self.assertNotIn(uid, overridden_set, "Batch must not be added to overridden set on save failure")
+
+    def test_split_transfer_failure_on_first_destination_returns_false(self):
+        """Split transfer halting immediately if first destination fails."""
+        from app import record_recommendation_action
+        confirmed_set = set()
+        uid = self.rec_split["batch_id"]
+
+        with patch("app.dual_save", return_value=False) as mock_save:
+            saved = record_recommendation_action(
+                rec=self.rec_split,
+                action="CONFIRMED",
+                user_name="pharmacist1",
+                is_split=True,
+                split_dests=self.rec_split["split_destinations"],
+            )
+            if saved:
+                confirmed_set.add(uid)
+
+        self.assertFalse(saved)
+        self.assertNotIn(uid, confirmed_set)
+        # Should stop after the first failed call, not continue to destination 2
+        self.assertEqual(mock_save.call_count, 1)
+
+    def test_split_transfer_failure_on_second_destination_returns_false(self):
+        """Split transfer returning False if any subsequent destination fails."""
+        from app import record_recommendation_action
+        confirmed_set = set()
+        uid = self.rec_split["batch_id"]
+
+        # First branch succeeds, second branch fails
+        with patch("app.dual_save", side_effect=[True, False]) as mock_save:
+            saved = record_recommendation_action(
+                rec=self.rec_split,
+                action="CONFIRMED",
+                user_name="pharmacist1",
+                is_split=True,
+                split_dests=self.rec_split["split_destinations"],
+            )
+            if saved:
+                confirmed_set.add(uid)
+
+        self.assertFalse(saved)
+        self.assertNotIn(uid, confirmed_set, "Split batch must not be marked confirmed if any destination fails")
+        self.assertEqual(mock_save.call_count, 2)
+
+    def test_dual_save_returns_boolean_reflecting_save_decision(self):
+        """dual_save directly returns True on success and False on error."""
+        from app import dual_save
+
+        with patch("app.save_decision", return_value=True):
+            self.assertTrue(dual_save("B1", "Med", "CONFIRMED"))
+
+        with patch("app.save_decision", return_value=False):
+            self.assertFalse(dual_save("B1", "Med", "CONFIRMED"))
+
+    def test_error_message_constant_is_clear(self):
+        """Error message constant matches user-facing requirements."""
+        from app import DECISION_SAVE_ERROR_MESSAGE
+        self.assertIn("The decision could not be saved", DECISION_SAVE_ERROR_MESSAGE)
+        self.assertIn("action was not confirmed", DECISION_SAVE_ERROR_MESSAGE)

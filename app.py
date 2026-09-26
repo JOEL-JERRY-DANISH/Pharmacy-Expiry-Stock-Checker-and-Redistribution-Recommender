@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from recommender import generate_recommendations, calculate_baseline
-from log_manager import save_entry, load_log
+from log_manager import load_log
 from auth_config import CREDENTIALS, authenticate_user
 
 st.set_page_config(
@@ -100,26 +100,46 @@ st.caption(
     "recommends which branch to send them to before they are wasted."
 )
 
-from database import load_stock, initialise_database, invalidate_stock_cache
+from database import (
+    load_stock,
+    initialise_database,
+    invalidate_stock_cache,
+    save_decision,
+)
 initialise_database()
+
+DECISION_SAVE_ERROR_MESSAGE = (
+    "The decision could not be saved. The action was not confirmed. "
+    "Please try again."
+)
 
 def dual_save(batch_id, medicine, action,
               destination="", override_reason="", user="",
               source_branch="", quantity=0, system_recommendation=""):
     """Record an operational decision in SQLite (the sole authoritative audit log)."""
-    save_entry(batch_id=batch_id, medicine=medicine, action=action,
-               destination=destination, override_reason=override_reason,
-               user=user, source_branch=source_branch, quantity=quantity,
-               system_recommendation=system_recommendation,
-               final_decision=action)
-    invalidate_stock_cache()
+    ok = save_decision(
+        batch_id=batch_id,
+        medicine=medicine,
+        action=action,
+        destination=destination,
+        override_reason=override_reason,
+        user=user,
+        source_branch=source_branch,
+        quantity=quantity,
+        system_recommendation=system_recommendation,
+        final_decision=action,
+    )
+    if ok:
+        invalidate_stock_cache()
+    return bool(ok)
 
 def record_recommendation_action(rec, action, user_name, destination="",
                                  override_reason="", is_split=False,
-                                 split_dests=None):
+                                 split_dests=None) -> bool:
     """
     Centralize recording of operational decisions (single or split transfers,
     overrides, or manual reviews) to SQLite audit log and invalidate stock cache.
+    Returns True if all decision records were persisted successfully, False otherwise.
     """
     uid = rec["batch_id"]
     source_branch = rec.get("branch_name", "")
@@ -127,10 +147,17 @@ def record_recommendation_action(rec, action, user_name, destination="",
     sys_rec = rec.get("action", "TRANSFER")
 
     if action == "CONFIRMED" and is_split and split_dests:
+        # Note on split-transfer architecture limitation:
+        # Currently, database.save_decision() commits each branch allocation
+        # sequentially in individual SQLite transactions. If one destination record
+        # succeeds and a subsequent destination record fails, the prior record remains
+        # committed. The operation is not fully atomic across all split destinations.
+        # To handle this safely, we stop processing on the first failure and return False,
+        # ensuring the batch is NOT marked as confirmed in st.session_state.
         for sd in split_dests:
             bname = sd.get("branch_name") or sd.get("dest_branch_name")
             tqty = sd.get("transfer_quantity", 0)
-            dual_save(
+            ok = dual_save(
                 batch_id=uid,
                 medicine=medicine,
                 action="CONFIRMED",
@@ -141,8 +168,11 @@ def record_recommendation_action(rec, action, user_name, destination="",
                 quantity=tqty,
                 system_recommendation="TRANSFER (SPLIT)",
             )
+            if not ok:
+                return False
+        return True
     else:
-        dual_save(
+        return dual_save(
             batch_id=uid,
             medicine=medicine,
             action=action,
@@ -549,8 +579,7 @@ for i, rec in enumerate(recs):
                 if st.button(confirm_label,
                              key=f"confirm_{i}",
                              type="primary"):
-                    st.session_state.confirmed.add(uid)
-                    record_recommendation_action(
+                    saved = record_recommendation_action(
                         rec=rec,
                         action="CONFIRMED",
                         user_name=st.session_state.current_user["name"],
@@ -558,7 +587,11 @@ for i, rec in enumerate(recs):
                         is_split=is_split,
                         split_dests=split_dests,
                     )
-                    st.rerun()
+                    if saved:
+                        st.session_state.confirmed.add(uid)
+                        st.rerun()
+                    else:
+                        st.error(DECISION_SAVE_ERROR_MESSAGE)
             with reason_col:
                 reason_text = st.text_input(
                     "Override reason (required before rejecting):",
@@ -568,15 +601,18 @@ for i, rec in enumerate(recs):
                 if st.button("↩️ Override / Reject",
                              key=f"override_{i}"):
                     if reason_text.strip():
-                        st.session_state.overridden.add(uid)
-                        record_recommendation_action(
+                        saved = record_recommendation_action(
                             rec=rec,
                             action="OVERRIDDEN",
                             user_name=st.session_state.current_user["name"],
                             destination=dest_display,
                             override_reason=reason_text,
                         )
-                        st.rerun()
+                        if saved:
+                            st.session_state.overridden.add(uid)
+                            st.rerun()
+                        else:
+                            st.error(DECISION_SAVE_ERROR_MESSAGE)
                     else:
                         st.error(
                             "Please type a reason before overriding."
@@ -585,8 +621,7 @@ for i, rec in enumerate(recs):
             action_button_label = f"✅ Confirm Split Transfer ({len(split_dests)} branches)" if is_split else f"✅ Transfer to {dest_display}"
             if st.button(action_button_label,
                          key=f"go_{i}"):
-                st.session_state.confirmed.add(uid)
-                record_recommendation_action(
+                saved = record_recommendation_action(
                     rec=rec,
                     action="CONFIRMED",
                     user_name=st.session_state.current_user["name"],
@@ -594,7 +629,11 @@ for i, rec in enumerate(recs):
                     is_split=is_split,
                     split_dests=split_dests,
                 )
-                st.rerun()
+                if saved:
+                    st.session_state.confirmed.add(uid)
+                    st.rerun()
+                else:
+                    st.error(DECISION_SAVE_ERROR_MESSAGE)
 
     elif rec["action"] == "FLAG_FOR_REVIEW":
         st.warning(
@@ -602,13 +641,16 @@ for i, rec in enumerate(recs):
             "receiving branch. Please review manually."
         )
         if st.button("📋 Mark as Reviewed", key=f"review_{i}"):
-            st.session_state.confirmed.add(uid)
-            record_recommendation_action(
+            saved = record_recommendation_action(
                 rec=rec,
                 action="MANUALLY_REVIEWED",
                 user_name=st.session_state.current_user["name"],
             )
-            st.rerun()
+            if saved:
+                st.session_state.confirmed.add(uid)
+                st.rerun()
+            else:
+                st.error(DECISION_SAVE_ERROR_MESSAGE)
 
     st.markdown("</div>", unsafe_allow_html=True)
     st.divider()
