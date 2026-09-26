@@ -1322,6 +1322,40 @@ class TestBarcodeUpdateAtomicity(unittest.TestCase):
         self.assertEqual(old_status, "active",
             "Old barcode must remain active after direct atomic_update_barcode rollback")
 
+    def test_atomic_update_barcode_identical_barcodes_raises_value_error(self):
+        """Updating a barcode with an identical new_barcode raises ValueError and preserves state."""
+        self.reg.register("BC-SAME-1", "BATCH-SAME-1", "Amoxicillin 500mg")
+
+        with self.assertRaises(ValueError) as ctx:
+            atomic_update_barcode(
+                "BC-SAME-1",
+                "BC-SAME-1",
+                "identical barcode update",
+                db_path=self.db_path,
+            )
+
+        self.assertEqual(str(ctx.exception), "Old and new barcodes must be different.")
+
+        # Original barcode remains active after failed operation
+        bid, status = self.reg.resolve("BC-SAME-1")
+        self.assertEqual(status, "active",
+            "Original barcode must remain active after identical update attempt")
+        self.assertEqual(bid, "BATCH-SAME-1")
+
+        # Verify no replacement barcode row is incorrectly created
+        conn = _sqlite3.connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM barcodes WHERE barcode = ?", ("BC-SAME-1",))
+            count = cur.fetchone()[0]
+            self.assertEqual(count, 1, "Only one row must exist for BC-SAME-1")
+
+            cur.execute("SELECT superseded_date FROM barcodes WHERE barcode = ?", ("BC-SAME-1",))
+            superseded_date = cur.fetchone()[0]
+            self.assertIsNone(superseded_date, "Barcode must not be superseded")
+        finally:
+            conn.close()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Safe & Validated Database Import Tests (test_67 – test_74)

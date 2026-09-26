@@ -1007,8 +1007,8 @@ def atomic_update_barcode(old_barcode, new_barcode, reason, db_path=None):
     old_barcode : str
         The currently active barcode to supersede.  Must exist and be active.
     new_barcode : str
-        The replacement barcode to register as active.  Must not already be
-        active for a different batch.
+        The replacement barcode to register as active.  Must differ from
+        old_barcode and must not already be active for a different batch.
     reason : str
         Reason for the change (stored in ``reason_for_change``).
     db_path : str or None
@@ -1017,11 +1017,14 @@ def atomic_update_barcode(old_barcode, new_barcode, reason, db_path=None):
     Raises
     ------
     ValueError
-        If *old_barcode* is not currently active, or if *new_barcode* is
-        already active for a different batch.
+        If *old_barcode* and *new_barcode* are identical, if *old_barcode* is
+        not currently active, or if *new_barcode* is already active for a
+        different batch.
     """
     s_old = str(old_barcode).strip()
     s_new = str(new_barcode).strip()
+    if s_old == s_new:
+        raise ValueError("Old and new barcodes must be different.")
     today = datetime.today().strftime("%Y-%m-%d")
     path = db_path or DB_PATH
 
