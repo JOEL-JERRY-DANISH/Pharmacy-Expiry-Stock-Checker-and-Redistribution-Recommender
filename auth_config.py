@@ -2,10 +2,16 @@
 #
 # Credential loading priority (highest → lowest):
 #   1. Streamlit secrets  (.streamlit/secrets.toml → [auth] section)
-#      Expects pre-computed SHA-256 hashes, e.g.:
-#        pharmacist1_password_hash = "<hex>"
-#   2. Environment variable *_PASSWORD_HASH  (pre-computed SHA-256 hex)
-#   3. Environment variable *_PASSWORD  (plaintext, hashed at runtime)
+#      Expects pre-computed PBKDF2-HMAC-SHA256 hashes in the format:
+#        pbkdf2_sha256$<iterations>$<salt_hex>$<hash_hex>
+#      Legacy unsalted SHA-256 hashes (64-char hex) are still accepted and
+#      are transparently upgraded in memory to PBKDF2-HMAC-SHA256 on first
+#      successful login.
+#   2. Environment variable *_PASSWORD_HASH  (pre-computed PBKDF2-HMAC-SHA256
+#      or legacy SHA-256 hex; legacy hashes are migrated in memory on first
+#      successful login)
+#   3. Environment variable *_PASSWORD  (plaintext, hashed at runtime via
+#      PBKDF2-HMAC-SHA256 with a random 128-bit salt; never stored on disk)
 #      — set via .env (gitignored) or the host OS environment
 #
 # See .streamlit/secrets.toml.example for the recommended approach.
@@ -27,8 +33,9 @@ DEFAULT_ALGORITHM = "pbkdf2_sha256"
 DEFAULT_ITERATIONS = 100_000
 SALT_BYTES = 16  # 16 bytes = 128 bits entropy -> 32 hex chars
 
-# In-memory caches to avoid re-hashing plaintext on every credential query
-# and to store seamlessly migrated credentials during runtime sessions.
+# In-memory store for PBKDF2-HMAC-SHA256 hashes that were upgraded from
+# legacy SHA-256 during this runtime session. No plaintext password is ever
+# stored here — only the newly derived PBKDF2 hash replaces the old one.
 _MIGRATED_HASHES: Dict[str, str] = {}
 
 

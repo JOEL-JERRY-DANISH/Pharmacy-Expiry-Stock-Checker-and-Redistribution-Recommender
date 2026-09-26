@@ -77,9 +77,15 @@ def lookup_barcode(barcode, registry=None, stock_df=None):
         ml_res = get_ml_predictor().predict_batch(row_dict)
         ml_risk_prob = ml_res["expiry_risk_probability"]
         ml_risk_class = ml_res["risk_class"]
-    except Exception:
-        ml_risk_prob = 0.0
-        ml_risk_class = "Low"
+    except Exception as _ml_exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "ML expiry prediction unavailable for batch %s: %s",
+            batch_id,
+            type(_ml_exc).__name__,
+        )
+        ml_risk_prob = None
+        ml_risk_class = "Unavailable"
 
     # Allow recommendation generation for actionable near-expiry stock
     recommendation = None

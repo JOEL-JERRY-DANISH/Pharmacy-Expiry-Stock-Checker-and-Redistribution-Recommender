@@ -1188,10 +1188,147 @@ class TestSQLiteBarcodeRegistry(unittest.TestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Barcode Update Atomicity Regression Tests
+# Verifies that BarcodeRegistry.update_barcode() is fully atomic: either both
+# the supersede and the insert succeed together, or neither takes effect.
+# ─────────────────────────────────────────────────────────────────────────────
+import sqlite3 as _sqlite3
+from database import atomic_update_barcode
+
+class TestBarcodeUpdateAtomicity(unittest.TestCase):
+    """
+    Regression tests for atomic transaction handling in update_barcode().
+
+    Each test runs against an isolated temporary SQLite database to prevent
+    any cross-test contamination.
+    """
+
+    def setUp(self):
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp_dir.name, "test_atomic_bc.db")
+        self.reg = BarcodeRegistry(self.db_path)
+
+    def tearDown(self):
+        self.tmp_dir.cleanup()
+
+    # ── Successful update ─────────────────────────────────────────────────────
+
+    def test_update_barcode_success_old_becomes_superseded(self):
+        """After a successful update, the old barcode resolves as 'superseded'."""
+        self.reg.register("BC-ATOMIC-OLD", "BATCH-ATM-1", "Aspirin 75mg")
+        self.reg.update_barcode("BC-ATOMIC-OLD", "BC-ATOMIC-NEW", "repackaging")
+
+        old_bid, old_status = self.reg.resolve("BC-ATOMIC-OLD")
+        self.assertEqual(old_bid, "BATCH-ATM-1",
+            "Superseded barcode must still resolve to the original batch_id")
+        self.assertEqual(old_status, "superseded",
+            "Old barcode status must be 'superseded' after update")
+
+    def test_update_barcode_success_new_becomes_active(self):
+        """After a successful update, the new barcode resolves as 'active' for the same batch."""
+        self.reg.register("BC-ATOMIC-OLD2", "BATCH-ATM-2", "Metformin 500mg")
+        self.reg.update_barcode("BC-ATOMIC-OLD2", "BC-ATOMIC-NEW2", "label correction")
+
+        new_bid, new_status = self.reg.resolve("BC-ATOMIC-NEW2")
+        self.assertEqual(new_bid, "BATCH-ATM-2",
+            "New barcode must resolve to the same batch_id")
+        self.assertEqual(new_status, "active",
+            "New barcode status must be 'active' after update")
+
+    # ── Rollback on insert failure ────────────────────────────────────────────
+
+    def test_rollback_when_new_barcode_insert_fails_old_barcode_unchanged(self):
+        """
+        If inserting the new barcode fails, the old barcode must remain
+        in its original 'active' state (the supersede is rolled back).
+        """
+        # Register the old barcode as active
+        self.reg.register("BC-ROLLBACK-OLD", "BATCH-RB-1", "Ibuprofen 400mg")
+
+        # Pre-register the 'new' barcode for a DIFFERENT batch so the insert
+        # inside atomic_update_barcode will raise ValueError (duplicate active).
+        self.reg.register("BC-ROLLBACK-NEW", "BATCH-RB-OTHER", "Warfarin 5mg")
+
+        # Attempt to update: should raise ValueError and roll back
+        with self.assertRaises(ValueError,
+                msg="update_barcode should raise ValueError when new barcode conflicts"):
+            self.reg.update_barcode("BC-ROLLBACK-OLD", "BC-ROLLBACK-NEW", "conflict test")
+
+        # Old barcode must still be active (rollback happened)
+        old_bid, old_status = self.reg.resolve("BC-ROLLBACK-OLD")
+        self.assertEqual(old_status, "active",
+            "Old barcode must still be 'active' after a rolled-back update")
+        self.assertEqual(old_bid, "BATCH-RB-1",
+            "Old barcode must still point to its original batch after rollback")
+
+    def test_rollback_does_not_leave_partial_replacement_barcode(self):
+        """
+        After a failed update, the replacement barcode must NOT appear as
+        a new 'active' entry for the source batch (no partial state).
+        """
+        self.reg.register("BC-PARTIAL-OLD", "BATCH-PRT-1", "Atorvastatin 20mg")
+        # Force conflict: new barcode already active for a different batch
+        self.reg.register("BC-PARTIAL-NEW", "BATCH-PRT-OTHER", "Ramipril 5mg")
+
+        with self.assertRaises(ValueError):
+            self.reg.update_barcode("BC-PARTIAL-OLD", "BC-PARTIAL-NEW", "partial test")
+
+        # The new barcode must NOT have been switched to point at BATCH-PRT-1
+        new_bid, _ = self.reg.resolve("BC-PARTIAL-NEW")
+        self.assertEqual(new_bid, "BATCH-PRT-OTHER",
+            "New barcode must remain associated with its original batch after rollback")
+
+    # ── Validation — invalid old barcode ─────────────────────────────────────
+
+    def test_update_nonexistent_old_barcode_raises_value_error(self):
+        """update_barcode on a non-existent (unknown) old barcode raises ValueError."""
+        with self.assertRaises(ValueError,
+                msg="update_barcode must raise ValueError for unknown old barcode"):
+            self.reg.update_barcode("DOES-NOT-EXIST", "BC-REPLACEMENT", "test")
+
+    def test_update_already_superseded_old_barcode_raises_value_error(self):
+        """update_barcode on an already-superseded old barcode raises ValueError."""
+        self.reg.register("BC-SUP-A", "BATCH-SUP-A", "Omeprazole 20mg")
+        self.reg.update_barcode("BC-SUP-A", "BC-SUP-B", "first update")
+        # BC-SUP-A is now superseded; trying to supersede it again must fail
+        with self.assertRaises(ValueError,
+                msg="update_barcode must raise ValueError for already-superseded barcode"):
+            self.reg.update_barcode("BC-SUP-A", "BC-SUP-C", "second update")
+
+    # ── Direct atomic_update_barcode helper ───────────────────────────────────
+
+    def test_atomic_update_barcode_direct_success(self):
+        """atomic_update_barcode() directly produces the same correct outcome as update_barcode."""
+        self.reg.register("BC-DIRECT-OLD", "BATCH-DIR-1", "Codeine 30mg")
+        atomic_update_barcode("BC-DIRECT-OLD", "BC-DIRECT-NEW", "direct test",
+                               db_path=self.db_path)
+
+        _, old_status = self.reg.resolve("BC-DIRECT-OLD")
+        new_bid, new_status = self.reg.resolve("BC-DIRECT-NEW")
+        self.assertEqual(old_status, "superseded")
+        self.assertEqual(new_bid, "BATCH-DIR-1")
+        self.assertEqual(new_status, "active")
+
+    def test_atomic_update_barcode_direct_rollback_on_conflict(self):
+        """atomic_update_barcode() rolls back and leaves DB unchanged on new-barcode conflict."""
+        self.reg.register("BC-DIR-RB-OLD", "BATCH-DRRB-1", "Digoxin 62.5mcg")
+        self.reg.register("BC-DIR-RB-NEW", "BATCH-DRRB-OTHER", "Furosemide 40mg")
+
+        with self.assertRaises(ValueError):
+            atomic_update_barcode("BC-DIR-RB-OLD", "BC-DIR-RB-NEW", "conflict",
+                                   db_path=self.db_path)
+
+        _, old_status = self.reg.resolve("BC-DIR-RB-OLD")
+        self.assertEqual(old_status, "active",
+            "Old barcode must remain active after direct atomic_update_barcode rollback")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Safe & Validated Database Import Tests (test_67 – test_74)
 # Verifies non-destructive imports, column/row validation, duplicate handling,
 # transaction atomicity, and summary reporting.
 # ─────────────────────────────────────────────────────────────────────────────
+
 class TestSafeDatabaseImport(unittest.TestCase):
 
     def setUp(self):
@@ -2961,6 +3098,154 @@ class TestPhase2MLFailureHandling(unittest.TestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Phase 2b — Barcode Lookup ML Failure Regression Tests
+# ─────────────────────────────────────────────────────────────────────────────
+from unittest.mock import MagicMock
+
+class TestBarcodeLookupMLFailure(unittest.TestCase):
+    """
+    Regression tests for ML failure handling in barcode_lookup.lookup_barcode():
+    1. Successful ML prediction populates ml_risk_probability (float) and ml_risk_class (str).
+    2. ML prediction failure returns ml_risk_class == "Unavailable".
+    3. ML prediction failure returns ml_risk_probability is None.
+    4. ML failure does not crash barcode lookup (result["found"] remains True).
+    5. Rule-based recommendation still works when ML fails.
+    6. ML failure never produces ml_risk_class == "Low" or ml_risk_probability == 0.0.
+    """
+
+    def _make_stock_df(self, dte=15, qty=50):
+        """Return a minimal one-row DataFrame suitable for barcode lookup tests."""
+        exp = (datetime.today() + timedelta(days=dte)).strftime("%Y-%m-%d")
+        return pd.DataFrame([{
+            "batch_id":                  "BARCODE-TEST-001",
+            "medicine_name":             "Paracetamol 500mg",
+            "category":                  "Analgesics",
+            "branch_id":                 "BR01",
+            "branch_name":               "Test Branch",
+            "quantity":                  qty,
+            "expiry_date":               exp,
+            "unit_cost_gbp":             1.50,
+            "demand_per_week":           20,
+            "branch_capacity_remaining": 500,
+        }])
+
+    def _make_registry_for_batch(self, batch_id="BARCODE-TEST-001",
+                                  barcode="5000111111111"):
+        """Return a BarcodeRegistry mock that resolves *barcode* to *batch_id*."""
+        registry = MagicMock(spec=BarcodeRegistry)
+        registry.resolve.return_value = (batch_id, "active")
+        return registry
+
+    # ── Successful ML Prediction ────────────────────────────────────────────
+
+    def test_barcode_lookup_ml_success_populates_probability_and_class(self):
+        """Successful ML prediction must populate float probability and valid risk class."""
+        stock_df = self._make_stock_df(dte=15, qty=50)
+        registry = self._make_registry_for_batch()
+
+        mock_predictor = MagicMock()
+        mock_predictor.predict_batch.return_value = {
+            "expiry_risk_probability": 0.72,
+            "risk_class": "High",
+            "class_probabilities": {"Low": 0.28, "Medium": 0.0, "High": 0.72},
+        }
+
+        with patch("ml_expiry_model.get_ml_predictor", return_value=mock_predictor):
+            result = lookup_barcode("5000111111111", registry=registry,
+                                    stock_df=stock_df)
+
+        self.assertTrue(result["found"])
+        self.assertIsInstance(result["ml_risk_probability"], float,
+            "ml_risk_probability must be float on successful ML prediction")
+        self.assertAlmostEqual(result["ml_risk_probability"], 0.72)
+        self.assertEqual(result["ml_risk_class"], "High")
+
+    # ── ML Failure → Unavailable / None ─────────────────────────────────────
+
+    def test_barcode_lookup_ml_failure_sets_unavailable_class(self):
+        """ML prediction failure must set ml_risk_class to 'Unavailable'."""
+        stock_df = self._make_stock_df()
+        registry = self._make_registry_for_batch()
+
+        with patch("ml_expiry_model.get_ml_predictor",
+                   side_effect=RuntimeError("model file missing")):
+            result = lookup_barcode("5000111111111", registry=registry,
+                                    stock_df=stock_df)
+
+        self.assertEqual(result["ml_risk_class"], "Unavailable",
+            "ml_risk_class must be 'Unavailable' when ML prediction fails")
+
+    def test_barcode_lookup_ml_failure_sets_none_probability(self):
+        """ML prediction failure must set ml_risk_probability to None."""
+        stock_df = self._make_stock_df()
+        registry = self._make_registry_for_batch()
+
+        with patch("ml_expiry_model.get_ml_predictor",
+                   side_effect=Exception("prediction error")):
+            result = lookup_barcode("5000111111111", registry=registry,
+                                    stock_df=stock_df)
+
+        self.assertIsNone(result["ml_risk_probability"],
+            "ml_risk_probability must be None when ML prediction fails")
+
+    def test_barcode_lookup_does_not_crash_when_ml_fails(self):
+        """Barcode lookup must return found=True even when ML prediction fails."""
+        stock_df = self._make_stock_df()
+        registry = self._make_registry_for_batch()
+
+        with patch("ml_expiry_model.get_ml_predictor",
+                   side_effect=OSError("ML model file not found")):
+            result = lookup_barcode("5000111111111", registry=registry,
+                                    stock_df=stock_df)
+
+        self.assertTrue(result["found"],
+            "lookup_barcode must still return found=True even when ML fails")
+        self.assertIn("batch_id", result)
+        self.assertIn("medicine_name", result)
+        self.assertIn("ml_risk_class", result)
+        self.assertIn("ml_risk_probability", result)
+
+    # ── Rule-Based Recommendation Continues When ML Fails ───────────────────
+
+    def test_barcode_lookup_rule_based_fields_intact_when_ml_fails(self):
+        """Rule-based urgency and score must be intact when ML prediction fails."""
+        stock_df = self._make_stock_df(dte=15, qty=50)
+        registry = self._make_registry_for_batch()
+
+        with patch("ml_expiry_model.get_ml_predictor",
+                   side_effect=Exception("ML unavailable")):
+            result = lookup_barcode("5000111111111", registry=registry,
+                                    stock_df=stock_df)
+
+        self.assertTrue(result["found"])
+        # The rule-based urgency / score fields must be intact and valid
+        self.assertIn(result["urgency"],
+            ["critical", "near-expiry", "watch", "safe", "expired"])
+        self.assertIsNotNone(result["score"])
+        # ml fields must carry the safe sentinels
+        self.assertEqual(result["ml_risk_class"], "Unavailable")
+        self.assertIsNone(result["ml_risk_probability"])
+
+    # ── ML Failure Never Produces Low or 0.0 ────────────────────────────────
+
+    def test_barcode_lookup_ml_failure_never_produces_low_or_zero(self):
+        """ML failure must never result in ml_risk_class='Low' or ml_risk_probability=0.0."""
+        stock_df = self._make_stock_df()
+        registry = self._make_registry_for_batch()
+
+        with patch("ml_expiry_model.get_ml_predictor",
+                   side_effect=Exception("corrupted model")):
+            result = lookup_barcode("5000111111111", registry=registry,
+                                    stock_df=stock_df)
+
+        self.assertNotEqual(result["ml_risk_class"], "Low",
+            "ML failure must never be masked as 'Low' risk")
+        self.assertNotEqual(result["ml_risk_probability"], 0.0,
+            "ML failure must never be masked as 0.0 probability")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Phase 3 — Invalid Expiry Date Handling Regression Tests
 # ─────────────────────────────────────────────────────────────────────────────
 class TestPhase3InvalidExpiryHandling(unittest.TestCase):

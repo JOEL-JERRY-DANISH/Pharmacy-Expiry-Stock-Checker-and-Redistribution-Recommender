@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
-import hashlib
 from datetime import datetime, timedelta
 from recommender import generate_recommendations, calculate_baseline
-from log_manager import save_entry, load_log, get_summary
+from log_manager import save_entry, load_log
 from auth_config import CREDENTIALS, authenticate_user
 
 st.set_page_config(
@@ -101,7 +100,7 @@ st.caption(
     "recommends which branch to send them to before they are wasted."
 )
 
-from database import load_stock, initialise_database, save_decision, invalidate_stock_cache
+from database import load_stock, initialise_database, invalidate_stock_cache
 initialise_database()
 
 def dual_save(batch_id, medicine, action,
@@ -114,6 +113,46 @@ def dual_save(batch_id, medicine, action,
                system_recommendation=system_recommendation,
                final_decision=action)
     invalidate_stock_cache()
+
+def record_recommendation_action(rec, action, user_name, destination="",
+                                 override_reason="", is_split=False,
+                                 split_dests=None):
+    """
+    Centralize recording of operational decisions (single or split transfers,
+    overrides, or manual reviews) to SQLite audit log and invalidate stock cache.
+    """
+    uid = rec["batch_id"]
+    source_branch = rec.get("branch_name", "")
+    medicine = rec["medicine_name"]
+    sys_rec = rec.get("action", "TRANSFER")
+
+    if action == "CONFIRMED" and is_split and split_dests:
+        for sd in split_dests:
+            bname = sd.get("branch_name") or sd.get("dest_branch_name")
+            tqty = sd.get("transfer_quantity", 0)
+            dual_save(
+                batch_id=uid,
+                medicine=medicine,
+                action="CONFIRMED",
+                destination=f"{bname} ({tqty} units)",
+                override_reason="",
+                user=user_name,
+                source_branch=source_branch,
+                quantity=tqty,
+                system_recommendation="TRANSFER (SPLIT)",
+            )
+    else:
+        dual_save(
+            batch_id=uid,
+            medicine=medicine,
+            action=action,
+            destination=destination,
+            override_reason=override_reason,
+            user=user_name,
+            source_branch=source_branch,
+            quantity=rec.get("quantity", 0),
+            system_recommendation=sys_rec,
+        )
 
 def load_data(force_reload=False):
     """
@@ -411,9 +450,15 @@ for i, rec in enumerate(recs):
     st.markdown(f"**Why:** {rec['reason']}")
 
     if "ml_risk_class" in rec:
-        prob_pct = int(rec.get("ml_risk_probability", 0.0) * 100)
-        ml_badge = "🔴" if rec["ml_risk_class"] == "High" else ("🟡" if rec["ml_risk_class"] == "Medium" else "🟢")
-        st.caption(f"{ml_badge} **ML Expiry Risk Assessment:** {rec['ml_risk_class']} ({prob_pct}% probability)")
+        _ml_prob = rec.get("ml_risk_probability")
+        _ml_class = rec.get("ml_risk_class", "Unavailable")
+        if _ml_class == "Unavailable" or _ml_prob is None:
+            ml_badge = "⬜"
+            prob_str = "N/A"
+        else:
+            prob_str = f"{int(_ml_prob * 100)}%"
+            ml_badge = "🔴" if _ml_class == "High" else ("🟡" if _ml_class == "Medium" else "🟢")
+        st.caption(f"{ml_badge} **ML Expiry Risk Assessment:** {_ml_class} ({prob_str} probability)")
 
     if "decision_factors" in rec:
         with st.expander("📊 View Decision Factors"):
@@ -442,8 +487,11 @@ for i, rec in enumerate(recs):
 
             if "ml_risk_class" in df_fac:
                 fcol9, fcol10 = st.columns(2)
-                fcol9.markdown(f"• **ML Risk Class:** {df_fac['ml_risk_class']}")
-                fcol10.markdown(f"• **ML Risk Probability:** {int(df_fac['ml_risk_probability'] * 100)}%")
+                _fac_ml_class = df_fac.get("ml_risk_class", "Unavailable")
+                _fac_ml_prob = df_fac.get("ml_risk_probability")
+                _fac_prob_str = f"{int(_fac_ml_prob * 100)}%" if _fac_ml_prob is not None else "N/A"
+                fcol9.markdown(f"• **ML Risk Class:** {_fac_ml_class}")
+                fcol10.markdown(f"• **ML Risk Probability:** {_fac_prob_str}")
 
     # Action buttons
     if already_confirmed:
@@ -502,33 +550,14 @@ for i, rec in enumerate(recs):
                              key=f"confirm_{i}",
                              type="primary"):
                     st.session_state.confirmed.add(uid)
-                    if is_split:
-                        for sd in split_dests:
-                            bname = sd.get("branch_name") or sd.get("dest_branch_name")
-                            tqty = sd.get("transfer_quantity", 0)
-                            dual_save(
-                                batch_id=uid,
-                                medicine=rec["medicine_name"],
-                                action="CONFIRMED",
-                                destination=f"{bname} ({tqty} units)",
-                                override_reason="",
-                                user=st.session_state.current_user["name"],
-                                source_branch=rec.get("branch_name", ""),
-                                quantity=tqty,
-                                system_recommendation="TRANSFER (SPLIT)",
-                            )
-                    else:
-                        dual_save(
-                            batch_id=uid,
-                            medicine=rec["medicine_name"],
-                            action="CONFIRMED",
-                            destination=dest_display,
-                            override_reason="",
-                            user=st.session_state.current_user["name"],
-                            source_branch=rec.get("branch_name", ""),
-                            quantity=rec.get("quantity", 0),
-                            system_recommendation=rec.get("action", "TRANSFER"),
-                        )
+                    record_recommendation_action(
+                        rec=rec,
+                        action="CONFIRMED",
+                        user_name=st.session_state.current_user["name"],
+                        destination=dest_display,
+                        is_split=is_split,
+                        split_dests=split_dests,
+                    )
                     st.rerun()
             with reason_col:
                 reason_text = st.text_input(
@@ -540,16 +569,12 @@ for i, rec in enumerate(recs):
                              key=f"override_{i}"):
                     if reason_text.strip():
                         st.session_state.overridden.add(uid)
-                        dual_save(
-                            batch_id=uid,
-                            medicine=rec["medicine_name"],
+                        record_recommendation_action(
+                            rec=rec,
                             action="OVERRIDDEN",
+                            user_name=st.session_state.current_user["name"],
                             destination=dest_display,
                             override_reason=reason_text,
-                            user=st.session_state.current_user["name"],
-                            source_branch=rec.get("branch_name", ""),
-                            quantity=rec.get("quantity", 0),
-                            system_recommendation=rec.get("action", "TRANSFER"),
                         )
                         st.rerun()
                     else:
@@ -561,33 +586,14 @@ for i, rec in enumerate(recs):
             if st.button(action_button_label,
                          key=f"go_{i}"):
                 st.session_state.confirmed.add(uid)
-                if is_split:
-                    for sd in split_dests:
-                        bname = sd.get("branch_name") or sd.get("dest_branch_name")
-                        tqty = sd.get("transfer_quantity", 0)
-                        dual_save(
-                            batch_id=uid,
-                            medicine=rec["medicine_name"],
-                            action="CONFIRMED",
-                            destination=f"{bname} ({tqty} units)",
-                            override_reason="",
-                            user=st.session_state.current_user["name"],
-                            source_branch=rec.get("branch_name", ""),
-                            quantity=tqty,
-                            system_recommendation="TRANSFER (SPLIT)",
-                        )
-                else:
-                    dual_save(
-                        batch_id=uid,
-                        medicine=rec["medicine_name"],
-                        action="CONFIRMED",
-                        destination=dest_display,
-                        override_reason="",
-                        user=st.session_state.current_user["name"],
-                        source_branch=rec.get("branch_name", ""),
-                        quantity=rec.get("quantity", 0),
-                        system_recommendation=rec.get("action", "TRANSFER"),
-                    )
+                record_recommendation_action(
+                    rec=rec,
+                    action="CONFIRMED",
+                    user_name=st.session_state.current_user["name"],
+                    destination=dest_display,
+                    is_split=is_split,
+                    split_dests=split_dests,
+                )
                 st.rerun()
 
     elif rec["action"] == "FLAG_FOR_REVIEW":
@@ -597,16 +603,10 @@ for i, rec in enumerate(recs):
         )
         if st.button("📋 Mark as Reviewed", key=f"review_{i}"):
             st.session_state.confirmed.add(uid)
-            dual_save(
-                batch_id=uid,
-                medicine=rec["medicine_name"],
+            record_recommendation_action(
+                rec=rec,
                 action="MANUALLY_REVIEWED",
-                destination="",
-                override_reason="",
-                user=st.session_state.current_user["name"],
-                source_branch=rec.get("branch_name", ""),
-                quantity=rec.get("quantity", 0),
-                system_recommendation=rec.get("action", "FLAG_FOR_REVIEW"),
+                user_name=st.session_state.current_user["name"],
             )
             st.rerun()
 

@@ -22,6 +22,7 @@ from database import (
     get_all_barcode_batch_ids,
     get_connection,
     DB_PATH,
+    atomic_update_barcode,
 )
 
 
@@ -100,44 +101,20 @@ class BarcodeRegistry:
 
     def update_barcode(self, old_bc, new_bc, reason):
         """
-        Supersede *old_bc* and register *new_bc* for the same batch.
+        Atomically supersede *old_bc* and register *new_bc* for the same batch.
 
-        Raises ValueError if old_bc is not currently active.
+        The supersede and insert are performed inside a single SQLite
+        transaction via :func:`database.atomic_update_barcode`.  If the new
+        barcode registration fails for any reason (e.g. duplicate barcode,
+        DB error), the supersede of the old barcode is automatically rolled
+        back, leaving the database in its original state.
+
+        Raises ValueError if old_bc is not currently active, or if new_bc is
+        already active for a different batch.
         """
         s_old = str(old_bc).strip()
         s_new = str(new_bc).strip()
-
-        # Resolve old barcode to confirm it is currently active
-        batch_id, status = resolve_barcode(s_old, db_path=self._db_path)
-        if batch_id is None or status != "active":
-            raise ValueError(
-                f"Barcode {s_old!r} not found as an active entry"
-            )
-
-        # Retrieve medicine_name from the active row
-        db = self._db_path or DB_PATH
-        conn = get_connection(db)
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT medicine_name FROM barcodes "
-                "WHERE barcode = ? AND superseded_date IS NULL",
-                (s_old,),
-            )
-            row = cur.fetchone()
-            medicine_name = row[0] if row else ""
-        finally:
-            conn.close()
-
-        # Mark old as superseded, then insert new active row
-        supersede_barcode(s_old, db_path=self._db_path)
-        register_barcode(
-            barcode=s_new,
-            batch_id=batch_id,
-            medicine_name=medicine_name,
-            reason=reason,
-            db_path=self._db_path,
-        )
+        atomic_update_barcode(s_old, s_new, reason, db_path=self._db_path)
 
     def get_all_batches(self):
         """Return the set of all distinct batch_id values in the registry."""

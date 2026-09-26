@@ -26,6 +26,7 @@ __all__ = [
     "update_stock_quantity", "export_decisions_to_csv",
     "DatabaseLoadError", "get_last_stock_load_error",
     "DatabaseSaveError", "get_last_decision_save_error",
+    "atomic_update_barcode",
 ]
 
 
@@ -985,6 +986,98 @@ def supersede_barcode(barcode, superseded_date=None, db_path=None):
                 f"Barcode {s_barcode!r} not found as an active entry"
             )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def atomic_update_barcode(old_barcode, new_barcode, reason, db_path=None):
+    """
+    Atomically supersede *old_barcode* and register *new_barcode* for the same
+    batch in a single SQLite transaction.
+
+    All three operations — fetching the medicine name, marking the old barcode
+    as superseded, and inserting the new active row — are performed on one
+    connection within a single ``with conn:`` block.  SQLite's connection
+    context manager commits when the block exits normally and rolls back
+    automatically on any exception, so the database can never be left in a
+    partially updated state.
+
+    Parameters
+    ----------
+    old_barcode : str
+        The currently active barcode to supersede.  Must exist and be active.
+    new_barcode : str
+        The replacement barcode to register as active.  Must not already be
+        active for a different batch.
+    reason : str
+        Reason for the change (stored in ``reason_for_change``).
+    db_path : str or None
+        Path to the SQLite database file.  Defaults to :data:`DB_PATH`.
+
+    Raises
+    ------
+    ValueError
+        If *old_barcode* is not currently active, or if *new_barcode* is
+        already active for a different batch.
+    """
+    s_old = str(old_barcode).strip()
+    s_new = str(new_barcode).strip()
+    today = datetime.today().strftime("%Y-%m-%d")
+    path = db_path or DB_PATH
+
+    conn = get_connection(path)
+    try:
+        with conn:  # commits on exit; rolls back on any exception
+            cur = conn.cursor()
+
+            # 1. Verify the old barcode is active and fetch medicine_name
+            cur.execute(
+                "SELECT batch_id, medicine_name FROM barcodes "
+                "WHERE barcode = ? AND superseded_date IS NULL",
+                (s_old,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise ValueError(
+                    f"Barcode {s_old!r} not found as an active entry"
+                )
+            batch_id, medicine_name = row[0], row[1] or ""
+
+            # 2. Guard: new barcode must not already be active for a different batch
+            cur.execute(
+                "SELECT batch_id FROM barcodes "
+                "WHERE barcode = ? AND superseded_date IS NULL",
+                (s_new,),
+            )
+            existing_new = cur.fetchone()
+            if existing_new is not None:
+                if existing_new[0] != batch_id:
+                    raise ValueError(
+                        f"Barcode {s_new!r} is already active for batch "
+                        f"{existing_new[0]!r}; cannot reassign to {batch_id!r}"
+                    )
+                # idempotent: new barcode already active for the same batch;
+                # still supersede the old one if not already done
+
+            # 3. Supersede the old barcode
+            cur.execute(
+                "UPDATE barcodes SET superseded_date = ? "
+                "WHERE barcode = ? AND superseded_date IS NULL",
+                (today, s_old),
+            )
+            # rowcount == 0 is fine here only in the idempotent case above;
+            # in all other cases the SELECT already confirmed an active row exists
+
+            # 4. Insert the new active barcode row (skip if idempotent)
+            if existing_new is None:
+                cur.execute(
+                    "INSERT INTO barcodes "
+                    "(barcode, batch_id, medicine_name, "
+                    " registered_date, superseded_date, reason_for_change) "
+                    "VALUES (?, ?, ?, ?, NULL, ?)",
+                    (s_new, batch_id, medicine_name, today, reason),
+                )
+        # Transaction committed successfully
     finally:
         conn.close()
 
