@@ -48,7 +48,7 @@ if not st.session_state.logged_in:
             "No password hashes were found in `.streamlit/secrets.toml` "
             "or environment variables.  "
             "Copy `.streamlit/secrets.toml.example` to "
-            "`.streamlit/secrets.toml` and fill in the SHA-256 hashes, "
+            "`.streamlit/secrets.toml` and fill in the PBKDF2-HMAC-SHA256 password hashes, "
             "or set the `PHARMACIST1_PASSWORD` / `PHARMACIST2_PASSWORD` / "
             "`ADMIN_PASSWORD` environment variables."
         )
