@@ -95,7 +95,7 @@ There is a need for an automated decision-support system that analyzes branch in
 | 12 | Secure user authentication using salted PBKDF2-HMAC-SHA256 with legacy migration support | ✅ COMPLETED |
 | 13 | Provide role-restricted administrative analytics with current network health and financial exposure metrics | ✅ COMPLETED |
 | 14 | Integrate a supporting Random Forest ML model to predict expiry risk without overriding safety rules | ✅ COMPLETED |
-| 15 | Verify implemented functionality through comprehensive automated tests (210 passing tests) | ✅ COMPLETED |
+| 15 | Verify implemented functionality through comprehensive automated tests (232 passing tests) | ✅ COMPLETED |
 
 ---
 
@@ -201,7 +201,7 @@ There is a need for an automated decision-support system that analyzes branch in
 | **Authentication** | [hashlib](https://docs.python.org/3/library/hashlib.html) & [secrets](https://docs.python.org/3/library/secrets.html) | Python standard library | PBKDF2-HMAC-SHA256 (100k rounds, 128-bit salt, `hmac.compare_digest`) |
 | **Alerting** | [smtplib](https://docs.python.org/3/library/smtplib.html) | Python standard library | Automated SMTP notifications for critical near-expiry batches |
 | **Configuration** | [python-dotenv](https://pypi.org/project/python-dotenv/) | Standards-compliant | Environment variable configuration and Streamlit secrets management |
-| **Testing** | [pytest](https://pytest.org/) | Automated Suite | 210 deterministic unit, boundary, integration, and security tests |
+| **Testing** | [pytest](https://pytest.org/) | Automated Suite | 232 deterministic unit, boundary, integration, and security tests |
 
 ---
 
@@ -574,7 +574,7 @@ Evaluates the Random Forest model on the dataset and writes metrics to `data/ml_
 
 ## 17. Testing & Verification (Actual Testing Results)
 
-The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](test_edge_cases.py). The suite has evolved from the initial foundational suite to **210 passing tests** covering functional boundaries, edge cases, and defined safety constraints across the project.
+The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](test_edge_cases.py). The suite has evolved from the initial foundational suite to **232 passing tests** covering functional boundaries, edge cases, and defined safety constraints across the project.
 
 ### Run the Full Test Suite
 
@@ -587,13 +587,14 @@ pytest -q
 ### Verified Test Suite Execution Output (Actual Testing Results)
 
 ```
-........................................................................ [ 34%]
-........................................................................ [ 68%]
-..................................................................       [100%]
-210 passed
+........................................................................ [ 31%]
+........................................................................ [ 62%]
+........................................................................ [ 93%]
+................                                                         [100%]
+232 passed
 ```
 
-### Test Suite Architecture (29 Test Classes, 210 Tests)
+### Test Suite Architecture (31 Test Classes, 232 Tests)
 
 | Test Class | Focus Area | Test Count |
 |------------|------------|:----------:|
@@ -607,25 +608,28 @@ pytest -q
 | `TestDecisionAuditLogging` | 11 audit fields, consistent action logging, override justification | 4 |
 | `TestAdminDashboardMetrics` | Live operational metric aggregation and chart data prep | 2 |
 | `TestMLExpiryModel` | Model training, holdout evaluation, feature importance, safe fallback | 22 |
-| `TestSQLiteBarcodeRegistry` | Relational barcode CRUD, duplicate rejection, historical query | 5 |
-| `TestSafeDatabaseImport` | Schema-validated CSV import, required columns, duplicate protection | 7 |
-| `TestExplainableScoring` | Mathematical accuracy of 0–150 composite scoring formula | 5 |
+| `TestSQLiteBarcodeRegistry` | Relational barcode CRUD, duplicate rejection, historical query | 7 |
+| `TestBarcodeUpdateAtomicity` | Atomic barcode supersession and replacement rollback transactions | 8 |
+| `TestSafeDatabaseImport` | Schema-validated CSV import, required columns, duplicate protection | 8 |
+| `TestExplainableScoring` | Mathematical accuracy of 0–150 composite scoring formula | 7 |
 | `TestDestinationSelection` | Need-score formula, multi-branch ranking, capacity limits | 5 |
-| `TestBatchSplitting` | Proportional split allocation across multiple destinations | 6 |
-| `TestSQLiteAuditLog` | Relational audit log persistence, ordering, and retrieval | 5 |
-| `TestLiveInventoryAndCache` | Cache invalidation, live stock updates, stock deduction | 4 |
+| `TestBatchSplitting` | Proportional split allocation across multiple destinations | 8 |
+| `TestSQLiteAuditLog` | Relational audit log persistence, ordering, and retrieval | 12 |
+| `TestLiveInventoryAndCache` | Cache invalidation, live stock updates, stock deduction | 9 |
 | `TestComprehensiveAutomatedSuite` | End-to-end integration across all system services | 32 |
-| `TestPhase1DestinationAllocation` | Destination capacity, need limits, zero-demand and split boundaries | 8 |
+| `TestPhase1DestinationAllocation` | Destination capacity, need limits, zero-demand and split boundaries | 6 |
 | `TestPhase2MLFailureHandling` | Safe ML failure recovery, `"Unavailable"` status, no crashes | 5 |
-| `TestPhase3InvalidExpiryHandling` | Malformed date strings, partial dates, safe validation | 7 |
+| `TestBarcodeLookupMLFailure` | Safe ML failure handling in barcode lookup, `"Unavailable"` status | 6 |
+| `TestPhase3InvalidExpiryHandling` | Malformed date strings, partial dates, safe validation | 10 |
 | `TestPhase4InvalidNumericHandling` | Negative quantities, invalid costs, non-numeric strings | 8 |
-| `TestPhase5DestinationNeedShelfLife` | Shelf-life-adjusted destination demand calculation | 6 |
-| `TestPhase6AbsorptionPercentage` | Zero transfer absorption, partial transfer, over-demand absorption | 6 |
+| `TestPhase5DestinationNeedShelfLife` | Shelf-life-adjusted destination demand calculation | 8 |
+| `TestPhase6AbsorptionPercentage` | Zero transfer absorption, partial transfer, over-demand absorption | 5 |
 | `TestPhase7HighImpactConfirmationConsistency` | Explicit confirmation state machine for high-impact recommendations | 6 |
-| `TestPhase8PasswordSecurity` | PBKDF2 verification, salt randomness, timing resistance, legacy migration | 7 |
-| `TestPhase12DatabaseFallback` | Prevention of silent CSV fallback on SQLite database failure | 6 |
-| `TestPhase13SaveDecisionAudit` | Transactional rollback and error surfacing on decision save failure | 8 |
-| **Total Verified Tests** | **Deterministic, isolated unit and edge-case tests** | **210 Passed** |
+| `TestPhase8PasswordSecurity` | PBKDF2 verification, salt randomness, timing resistance, legacy migration | 5 |
+| `TestPhase12DatabaseFallback` | Prevention of silent CSV fallback on SQLite database failure | 5 |
+| `TestPhase13SaveDecisionAudit` | Transactional rollback and error surfacing on decision save failure | 5 |
+| `TestDecisionSaveFailureHandling` | Session state protection and error surfacing on decision save failure | 8 |
+| **Total Verified Tests** | **Deterministic, isolated unit and edge-case tests** | **232 Passed** |
 
 ---
 
@@ -753,5 +757,5 @@ Pharmacy-Expiry-Stock-Checker-and-Redistribution-Recommender/
 ├── README.md                       # Comprehensive system documentation (this file)
 ├── recommender.py                  # Deterministic scoring, need calculation, & allocation engine
 ├── requirements.txt                # Python package dependencies
-└── test_edge_cases.py              # Automated test suite (210 deterministic unit/boundary tests)
+└── test_edge_cases.py              # Automated test suite (232 deterministic unit/boundary tests)
 ```
