@@ -2157,10 +2157,13 @@ class TestSQLiteAuditLog(unittest.TestCase):
 # ─────────────────────────────────────────────────────────────────────────────
 # Live Inventory & Cache Invalidation Tests
 # ─────────────────────────────────────────────────────────────────────────────
+import sqlite3
+from unittest.mock import patch, MagicMock
 from database import (
     update_stock_quantity,
     invalidate_stock_cache,
     clear_stock_cache,
+    DatabaseSaveError,
 )
 from recommender import days_to_expiry, generate_recommendations
 
@@ -2208,6 +2211,138 @@ class TestLiveInventoryAndCache(unittest.TestCase):
         # Nonexistent batch returns False
         result = update_stock_quantity("NONEXISTENT-BATCH-9999", 50, db_path=self.db_path)
         self.assertFalse(result)
+
+    def test_update_stock_quantity_successful_update_works_and_invalidates_cache(self):
+        """A. A successful quantity update modifies SQLite, returns True, and invalidates cache."""
+        df1 = load_stock(self.db_path)
+        target_batch = df1.iloc[0]["batch_id"]
+        original_qty = int(df1.iloc[0]["quantity"])
+        new_qty = original_qty + 50
+
+        with patch("database.invalidate_stock_cache") as mock_cache:
+            updated = update_stock_quantity(target_batch, new_qty, db_path=self.db_path)
+            self.assertTrue(updated)
+            mock_cache.assert_called_once()
+
+        df2 = load_stock(self.db_path)
+        updated_row = df2[df2["batch_id"] == target_batch]
+        self.assertEqual(int(updated_row.iloc[0]["quantity"]), new_qty)
+
+    def test_update_stock_quantity_forced_failure_raises_database_save_error(self):
+        """
+        Regression tests for failure handling during update_stock_quantity:
+        B. A forced database failure raises DatabaseSaveError.
+        C. After the forced failure, the original quantity remains unchanged.
+        D. Cache invalidation is not triggered when persistence fails.
+        """
+        df1 = load_stock(self.db_path)
+        target_batch = df1.iloc[0]["batch_id"]
+        original_qty = int(df1.iloc[0]["quantity"])
+        attempted_qty = original_qty + 99
+
+        real_get_connection = get_connection
+
+        class FailingCommitConnection:
+            """Connection wrapper simulating a commit failure while executing actual SQL."""
+            def __init__(self, real_conn):
+                self._real = real_conn
+                self.rollback_called = False
+                self.close_called = False
+
+            def cursor(self):
+                return self._real.cursor()
+
+            def commit(self):
+                raise sqlite3.OperationalError("Simulated disk I/O error on commit")
+
+            def rollback(self):
+                self.rollback_called = True
+                return self._real.rollback()
+
+            def close(self):
+                self.close_called = True
+                return self._real.close()
+
+        proxy_holder = []
+
+        def mock_get_conn_commit(path=None):
+            conn = FailingCommitConnection(real_get_connection(path))
+            proxy_holder.append(conn)
+            return conn
+
+        # 1. Test commit failure path
+        with patch("database.get_connection", side_effect=mock_get_conn_commit), \
+             patch("database.invalidate_stock_cache") as mock_cache:
+
+            with self.assertRaises(DatabaseSaveError) as ctx:
+                update_stock_quantity(target_batch, attempted_qty, db_path=self.db_path)
+
+            # B. Forced database failure raises DatabaseSaveError with useful message
+            self.assertIn(target_batch, str(ctx.exception))
+            self.assertIn("Simulated disk I/O error on commit", str(ctx.exception))
+
+            # D. Cache invalidation is not triggered when persistence fails
+            mock_cache.assert_not_called()
+
+        # Verify rollback and close were executed
+        self.assertTrue(len(proxy_holder) > 0)
+        self.assertTrue(proxy_holder[0].rollback_called)
+        self.assertTrue(proxy_holder[0].close_called)
+
+        # C. After the forced failure, the original quantity remains unchanged
+        df2 = load_stock(self.db_path)
+        row_after = df2[df2["batch_id"] == target_batch]
+        self.assertEqual(int(row_after.iloc[0]["quantity"]), original_qty)
+
+        # 2. Test update execution failure path
+        class FailingExecuteConnection:
+            """Connection wrapper simulating an execute failure."""
+            def __init__(self, real_conn):
+                self._real = real_conn
+                self.rollback_called = False
+                self.close_called = False
+
+            def cursor(self):
+                mock_cur = MagicMock()
+                mock_cur.execute.side_effect = sqlite3.OperationalError("Simulated SQL execution error")
+                return mock_cur
+
+            def commit(self):
+                return self._real.commit()
+
+            def rollback(self):
+                self.rollback_called = True
+                return self._real.rollback()
+
+            def close(self):
+                self.close_called = True
+                return self._real.close()
+
+        exec_proxy_holder = []
+
+        def mock_get_conn_exec(path=None):
+            conn = FailingExecuteConnection(real_get_connection(path))
+            exec_proxy_holder.append(conn)
+            return conn
+
+        with patch("database.get_connection", side_effect=mock_get_conn_exec), \
+             patch("database.invalidate_stock_cache") as mock_cache_exec:
+
+            with self.assertRaises(DatabaseSaveError) as ctx_exec:
+                update_stock_quantity(target_batch, attempted_qty, db_path=self.db_path)
+
+            self.assertIn(target_batch, str(ctx_exec.exception))
+            self.assertIn("Simulated SQL execution error", str(ctx_exec.exception))
+            mock_cache_exec.assert_not_called()
+
+        self.assertTrue(len(exec_proxy_holder) > 0)
+        self.assertTrue(exec_proxy_holder[0].rollback_called)
+        self.assertTrue(exec_proxy_holder[0].close_called)
+
+        # Quantity remains unchanged
+        df3 = load_stock(self.db_path)
+        row_after_exec = df3[df3["batch_id"] == target_batch]
+        self.assertEqual(int(row_after_exec.iloc[0]["quantity"]), original_qty)
 
     def test_import_stock_updates_reflected_immediately(self):
         """Updating stock via CSV import is reflected immediately on next load."""

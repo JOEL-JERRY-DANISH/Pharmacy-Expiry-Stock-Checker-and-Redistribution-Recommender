@@ -318,6 +318,13 @@ def update_stock_quantity(batch_id, new_quantity, db_path=None):
     -------
     bool
         True if an existing record was updated, False otherwise.
+
+    Raises
+    ------
+    ValueError
+        If batch_id is empty, new_quantity is invalid or negative.
+    DatabaseSaveError
+        If the SQLite update or commit fails.
     """
     if batch_id is None or not str(batch_id).strip():
         raise ValueError("batch_id cannot be empty")
@@ -331,8 +338,9 @@ def update_stock_quantity(batch_id, new_quantity, db_path=None):
         raise ValueError("Quantity cannot be negative")
 
     path = db_path or DB_PATH
-    conn = get_connection(path)
+    conn = None
     try:
+        conn = get_connection(path)
         cur = conn.cursor()
         cur.execute(
             "UPDATE stock SET quantity = ? WHERE batch_id = ?",
@@ -340,8 +348,21 @@ def update_stock_quantity(batch_id, new_quantity, db_path=None):
         )
         conn.commit()
         updated = cur.rowcount > 0
+    except Exception as e:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        err_msg = f"Failed to update stock quantity for batch '{batch_id}' in SQLite at '{path}': {e}"
+        logger.error(err_msg)
+        raise DatabaseSaveError(err_msg) from e
     finally:
-        conn.close()
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     if updated:
         invalidate_stock_cache()

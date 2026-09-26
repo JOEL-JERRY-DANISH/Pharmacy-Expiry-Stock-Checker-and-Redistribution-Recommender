@@ -95,7 +95,7 @@ There is a need for an automated decision-support system that analyzes branch in
 | 12 | Secure user authentication using salted PBKDF2-HMAC-SHA256 with legacy migration support | ✅ COMPLETED |
 | 13 | Provide role-restricted administrative analytics with current network health and financial exposure metrics | ✅ COMPLETED |
 | 14 | Integrate a supporting Random Forest ML model to predict expiry risk without overriding safety rules | ✅ COMPLETED |
-| 15 | Verify implemented functionality through comprehensive automated tests (233 passing tests) | ✅ COMPLETED |
+| 15 | Verify implemented functionality through comprehensive automated tests (235 passing tests) | ✅ COMPLETED |
 
 ---
 
@@ -201,7 +201,7 @@ There is a need for an automated decision-support system that analyzes branch in
 | **Authentication** | [hashlib](https://docs.python.org/3/library/hashlib.html) & [secrets](https://docs.python.org/3/library/secrets.html) | Python standard library | PBKDF2-HMAC-SHA256 (100k rounds, 128-bit salt, `hmac.compare_digest`) |
 | **Alerting** | [smtplib](https://docs.python.org/3/library/smtplib.html) | Python standard library | Automated SMTP notifications for critical near-expiry batches |
 | **Configuration** | [python-dotenv](https://pypi.org/project/python-dotenv/) | Standards-compliant | Environment variable configuration and Streamlit secrets management |
-| **Testing** | [pytest](https://pytest.org/) | Automated Suite | 233 deterministic unit, boundary, integration, and security tests |
+| **Testing** | [pytest](https://pytest.org/) | Automated Suite | 235 deterministic unit, boundary, integration, and security tests |
 
 ---
 
@@ -574,7 +574,7 @@ Evaluates the Random Forest model on the dataset and writes metrics to `data/ml_
 
 ## 17. Testing & Verification (Actual Testing Results)
 
-The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](test_edge_cases.py). The suite has evolved from the initial foundational suite to **233 passing tests** covering functional boundaries, edge cases, and defined safety constraints across the project.
+The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](test_edge_cases.py). The suite has evolved from the initial foundational suite to **235 passing tests** covering functional boundaries, edge cases, and defined safety constraints across the project.
 
 ### Run the Full Test Suite
 
@@ -589,12 +589,12 @@ pytest -q
 ```
 ........................................................................ [ 30%]
 ........................................................................ [ 61%]
-........................................................................ [ 92%]
-.................                                                        [100%]
-233 passed
+........................................................................ [ 91%]
+...................                                                      [100%]
+235 passed
 ```
 
-### Test Suite Architecture (31 Test Classes, 233 Tests)
+### Test Suite Architecture (31 Test Classes, 235 Tests)
 
 | Test Class | Focus Area | Test Count |
 |------------|------------|:----------:|
@@ -615,7 +615,7 @@ pytest -q
 | `TestDestinationSelection` | Need-score formula, multi-branch ranking, capacity limits | 5 |
 | `TestBatchSplitting` | Proportional split allocation across multiple destinations | 8 |
 | `TestSQLiteAuditLog` | Relational audit log persistence, ordering, and retrieval | 12 |
-| `TestLiveInventoryAndCache` | Cache invalidation, live stock updates, stock deduction | 9 |
+| `TestLiveInventoryAndCache` | Cache invalidation, live stock updates, stock deduction | 11 |
 | `TestComprehensiveAutomatedSuite` | End-to-end integration across all system services | 32 |
 | `TestPhase1DestinationAllocation` | Destination capacity, need limits, zero-demand and split boundaries | 6 |
 | `TestPhase2MLFailureHandling` | Safe ML failure recovery, `"Unavailable"` status, no crashes | 5 |
@@ -629,7 +629,7 @@ pytest -q
 | `TestPhase12DatabaseFallback` | Prevention of silent CSV fallback on SQLite database failure | 5 |
 | `TestPhase13SaveDecisionAudit` | Transactional rollback and error surfacing on decision save failure | 5 |
 | `TestDecisionSaveFailureHandling` | Session state protection and error surfacing on decision save failure | 8 |
-| **Total Verified Tests** | **Deterministic, isolated unit and edge-case tests** | **233 Passed** |
+| **Total Verified Tests** | **Deterministic, isolated unit and edge-case tests** | **235 Passed** |
 
 ---
 
@@ -757,5 +757,5 @@ Pharmacy-Expiry-Stock-Checker-and-Redistribution-Recommender/
 ├── README.md                       # Comprehensive system documentation (this file)
 ├── recommender.py                  # Deterministic scoring, need calculation, & allocation engine
 ├── requirements.txt                # Python package dependencies
-└── test_edge_cases.py              # Automated test suite (233 deterministic unit/boundary tests)
+└── test_edge_cases.py              # Automated test suite (235 deterministic unit/boundary tests)
 ```
