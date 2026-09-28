@@ -11,6 +11,21 @@ st.set_page_config(
     layout="wide"
 )
 
+from ui_theme import (
+    inject_custom_css,
+    render_page_header,
+    render_sidebar_account,
+    render_sidebar_nav,
+    render_section_header,
+    get_urgency_theme,
+    render_empty_state,
+    format_urgency_badge,
+    format_shelf_life,
+    format_risk_badge,
+)
+
+inject_custom_css()
+
 # ============================================================
 # LOGIN SECTION — paste everything below here, after imports
 # ============================================================
@@ -38,8 +53,11 @@ if "login_time" not in st.session_state:
     st.session_state.login_time = None
 
 if not st.session_state.logged_in:
-    st.title("💊 Pharmacy Stock Checker")
-    st.subheader("Please log in to continue")
+    render_page_header(
+        "Pharmacy Stock Checker",
+        "Clinical decision support system — Please log in to continue",
+        icon="💊"
+    )
 
     # Warn the operator when no passwords have been configured at all.
     if not _credentials_configured():
@@ -54,9 +72,20 @@ if not st.session_state.logged_in:
         )
 
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Log In")
+        st.markdown("#### 🔐 Authorized Sign-In")
+        st.caption("Enter your assigned pharmacy credentials to access expiry monitoring and redistribution tools.")
+        username = st.text_input(
+            "Username *",
+            placeholder="e.g. pharmacist_central or admin",
+            help="Clinical staff username assigned by Central Office."
+        )
+        password = st.text_input(
+            "Password *",
+            type="password",
+            placeholder="Enter secure password",
+            help="Case-sensitive account password."
+        )
+        submitted = st.form_submit_button("Sign In to Portal", type="primary", use_container_width=True)
 
         if submitted:
             valid, user_info = check_password(username, password)
@@ -66,7 +95,7 @@ if not st.session_state.logged_in:
                 st.session_state.login_time   = datetime.now()
                 st.rerun()
             else:
-                st.error("❌ Incorrect username or password. Please try again.")
+                st.error("❌ Authentication Failed: Incorrect username or password. Please verify your credentials and try again.")
     st.stop()
 
 # --- Session timeout (8 hours) ---
@@ -79,25 +108,18 @@ if st.session_state.login_time is not None:
         st.warning("⏰ Your session has expired. Please log in again.")
         st.rerun()
 
-# --- Show logged-in user ---
+# --- Show logged-in user & sidebar navigation ---
 user = st.session_state.current_user
 if user is not None:
-    st.sidebar.success(f"Logged in as: {user['name']}")
-    st.sidebar.caption(f"Branch: {user['branch']}")
+    render_sidebar_account(user)
+    render_sidebar_nav(current_page="recommender", user=user)
 
-if st.sidebar.button("Log Out"):
-    st.session_state.logged_in    = False
-    st.session_state.current_user = None
-    st.session_state.login_time   = None
-    st.session_state.pop("confirmed", None)
-    st.session_state.pop("overridden", None)
-    st.session_state.pop("barcode_registry", None)
-    st.rerun()
-
-st.title("💊 Pharmacy Expiry Stock Checker")
-st.caption(
-    "This tool finds medicines that are about to expire and "
-    "recommends which branch to send them to before they are wasted."
+context_badge = f"📍 Scope: {user.get('branch', 'All branches')}" if user else None
+render_page_header(
+    "Pharmacy Expiry Stock Checker",
+    "Identify near-expiry inventory and allocate redistribution transfers across branches before stock is wasted.",
+    icon="💊",
+    context_info=context_badge,
 )
 
 from database import (
@@ -105,6 +127,8 @@ from database import (
     initialise_database,
     invalidate_stock_cache,
     save_decision,
+    update_stock_quantity,
+    DatabaseSaveError,
 )
 initialise_database()
 
@@ -199,7 +223,7 @@ load_data.clear = invalidate_stock_cache
 raw_df = load_data()
 
 # --- Sidebar ---
-st.sidebar.header("🔍 Filter Stock")
+st.sidebar.markdown("<div class='sidebar-section-title'>🔍 Filter Inventory</div>", unsafe_allow_html=True)
 branches = ["All branches"] + \
            sorted(raw_df["branch_name"].unique().tolist())
 selected = st.sidebar.selectbox("Show stock from:", branches)
@@ -207,6 +231,26 @@ if selected != "All branches":
     df = raw_df[raw_df["branch_name"] == selected]
 else:
     df = raw_df
+
+search_filter = st.sidebar.text_input(
+    "Search Medicine / Batch:",
+    placeholder="e.g. Amoxicillin, BATCH-101",
+    key="sidebar_search_filter"
+)
+status_options = [
+    "All Statuses",
+    "🔴 Urgent (0–7 days)",
+    "🟠 Act Soon (8–30 days)",
+    "🟡 Watch (31–60 days)",
+    "🟢 Safe (>60 days)",
+    "❌ Expired (<0 days)",
+]
+selected_status_filter = st.sidebar.selectbox(
+    "Filter by Expiry Status:",
+    status_options,
+    index=0,
+    key="sidebar_status_filter"
+)
 
 # --- Session state — restored from persistent log on first load ---
 if "log" not in st.session_state:
@@ -240,10 +284,11 @@ from alert_manager import send_alert
 
 critical_recs = [r for r in recs if r["urgency"] == "critical"]
 if critical_recs:
+    st.sidebar.markdown("<div class='sidebar-section-title'>🔔 Notifications</div>", unsafe_allow_html=True)
     st.sidebar.warning(
         f"⚠️ {len(critical_recs)} critical items found"
     )
-    if st.sidebar.button("📧 Send Email Alert"):
+    if st.sidebar.button("📧 Send Email Alert", use_container_width=True):
         success = send_alert(critical_recs)
         if success:
             st.sidebar.success("Email sent successfully!")
@@ -253,11 +298,12 @@ if critical_recs:
             )
 # --- Email alert section ends here ---
 
+# --- Recommendations check ---
 if not recs:
-    st.success("✅ No near-expiry stock needs action today.")
-    st.stop()
+    st.info("ℹ️ No near-expiry stock currently requires immediate redistribution in this scope.")
 
 # --- Summary metrics ---
+render_section_header("Network Overview", "High-level inventory status for the selected scope", icon="📊")
 critical = sum(1 for r in recs if r["urgency"] == "critical")
 near_exp = sum(1 for r in recs if r["urgency"] == "near-expiry")
 total_val = sum(r["stock_value"] for r in recs)
@@ -325,13 +371,30 @@ if not _branch_risk.empty:
             hide_index=True,
         )
 
-# --- Colour guide ---
-st.markdown("""
-**Colour guide — colour AND text used together:**
-🔴 **Red** = act within 7 days |
-🟠 **Orange** = act within 30 days |
-🔵 **Blue** = cannot match automatically, review manually
+# --- Clinical Expiry & Risk Framework Guide ---
+with st.expander("ℹ️ Clinical Expiry Horizons & Risk Assessment Guide", expanded=False):
+    gcol1, gcol2 = st.columns(2)
+    with gcol1:
+        st.markdown("""
+**Operational Expiry Horizons (Dual-Encoded Semantic Tiers):**
+- 🔴 **Critical / Urgent (0–7 days):** Immediate dispensation priority or express transfer.
+- 🟠 **Warning / Act Soon (8–30 days):** Active redistribution window to prevent stock expiration.
+- 🟡 **Watch (31–60 days):** Approaching horizon; monitoring branch dispensary velocity.
+- 🟢 **Safe (>60 days):** Routine shelf life; standard inventory circulation.
+- 🔵 **Manual Review:** Automatic transfer match unavailable; clinical pharmacist review required.
+- ⚪ **Unavailable / Error:** Advisory feature data unavailable or parsing error.
 """)
+    with gcol2:
+        st.markdown("""
+**Risk Assessment & Advisory Signal Framework:**
+- **Deterministic Heuristic Score (0–100+):** Objective operational score combining:
+  1. *Urgency Factor:* Proximity to expiration.
+  2. *Quantity Volume Factor:* Unit count requiring redistribution.
+  3. *Financial Exposure Factor:* Monetary value at risk of expiration (£).
+- **Supplementary Advisory ML Signal:** Random Forest statistical prediction estimating expiry wastage probability based on inventory attributes.
+  *(Advisory only — does not supersede clinical judgment or rule-based safety criteria).*
+""")
+
 
 # --- Evaluation panel ---
 with st.expander("📊 View Evaluation Results"):
@@ -347,11 +410,152 @@ with st.expander("📊 View Evaluation Results"):
 | Target achieved | {'✅ YES' if improvement >= 60 else '❌ Not yet'} |
     """)
 
+# --- INVENTORY DIRECTORY & EXPLORER ---
+st.divider()
+render_section_header(
+    "Inventory Directory",
+    "Comprehensive branch stock batches with real-time quantities, shelf life, and risk status",
+    icon="📦",
+    badge_text=f"{len(df)} Batches Total"
+)
+
+# Compute enriched stock view
+today = pd.Timestamp.today().date()
+inv_df = df.copy()
+inv_df["dte"] = inv_df["expiry_date"].apply(
+    lambda d: (pd.Timestamp(d).date() - today).days
+)
+inv_df["stock_value"] = (inv_df["quantity"] * inv_df["unit_cost_gbp"]).round(2)
+
+def _calc_status_badge(days: int) -> str:
+    if days < 0:
+        return "❌ Expired"
+    elif days <= 7:
+        return "🔴 Critical (≤7d)"
+    elif days <= 30:
+        return "🟠 Act Soon (8–30d)"
+    elif days <= 60:
+        return "🟡 Watch (31–60d)"
+    else:
+        return "🟢 Safe (>60d)"
+
+inv_df["stock_status"] = inv_df["dte"].apply(_calc_status_badge)
+inv_df["shelf_life"] = inv_df["dte"].apply(format_shelf_life)
+
+# Filter by search_filter if provided
+filtered_inv = inv_df
+if search_filter.strip():
+    q = search_filter.strip().lower()
+    filtered_inv = filtered_inv[
+        filtered_inv["medicine_name"].astype(str).str.lower().str.contains(q) |
+        filtered_inv["batch_id"].astype(str).str.lower().str.contains(q)
+    ]
+
+# Filter by selected_status_filter if provided
+if selected_status_filter != "All Statuses":
+    if "Critical" in selected_status_filter:
+        filtered_inv = filtered_inv[(filtered_inv["dte"] >= 0) & (filtered_inv["dte"] <= 7)]
+    elif "Act Soon" in selected_status_filter:
+        filtered_inv = filtered_inv[(filtered_inv["dte"] > 7) & (filtered_inv["dte"] <= 30)]
+    elif "Watch" in selected_status_filter:
+        filtered_inv = filtered_inv[(filtered_inv["dte"] > 30) & (filtered_inv["dte"] <= 60)]
+    elif "Safe" in selected_status_filter:
+        filtered_inv = filtered_inv[filtered_inv["dte"] > 60]
+    elif "Expired" in selected_status_filter:
+        filtered_inv = filtered_inv[filtered_inv["dte"] < 0]
+
+if filtered_inv.empty:
+    render_empty_state(
+        "No Matching Inventory Batches",
+        "No inventory records match your current branch, search query, or status filter.",
+        "🔍"
+    )
+else:
+    display_cols = [
+        "stock_status",
+        "medicine_name",
+        "batch_id",
+        "branch_name",
+        "quantity",
+        "expiry_date",
+        "shelf_life",
+        "unit_cost_gbp",
+        "stock_value",
+    ]
+    renamed_cols = {
+        "stock_status": "Risk Level",
+        "medicine_name": "Medicine",
+        "batch_id": "Batch ID",
+        "branch_name": "Branch Location",
+        "quantity": "Quantity (Units)",
+        "expiry_date": "Expiry Date",
+        "shelf_life": "Shelf Life Remaining",
+        "unit_cost_gbp": "Unit Cost (£)",
+        "stock_value": "Stock Value (£)",
+    }
+    view_table = filtered_inv[display_cols].rename(columns=renamed_cols)
+    st.dataframe(
+        view_table.style.format({
+            "Quantity (Units)": "{:,}",
+            "Unit Cost (£)": "£{:,.2f}",
+            "Stock Value (£)": "£{:,.2f}",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+# --- STOCK LEVEL MANAGEMENT (COUNT RECONCILIATION) ---
+with st.expander("✏️ Update Batch Stock Quantity (Physical Count Reconciliation)", expanded=False):
+    st.markdown("Adjust recorded stock quantities in SQLite following a physical stock count or manual dispensing.")
+    u_col1, u_col2 = st.columns([2, 1])
+    with u_col1:
+        batch_options = filtered_inv["batch_id"].tolist() if not filtered_inv.empty else inv_df["batch_id"].tolist()
+        batch_to_update = st.selectbox(
+            "Select Batch to Update *",
+            options=batch_options,
+            key="stock_update_batch_select",
+            help="Select the batch identifier verified during the physical inventory count."
+        ) if batch_options else None
+    with u_col2:
+        current_batch_qty = 0
+        if batch_to_update:
+            matched_rows = inv_df[inv_df["batch_id"] == batch_to_update]
+            if not matched_rows.empty:
+                current_batch_qty = int(matched_rows.iloc[0]["quantity"])
+                med_name = matched_rows.iloc[0]["medicine_name"]
+                st.caption(f"**Medicine:** {med_name} | **Current Recorded:** {current_batch_qty} units")
+
+        new_stock_qty = st.number_input(
+            "New Physical Stock Quantity (units) *",
+            min_value=0,
+            step=1,
+            value=current_batch_qty,
+            key="stock_update_new_qty",
+            help="Enter the verified physical count on hand."
+        )
+
+    if st.button("💾 Save Updated Stock Quantity", type="primary", key="btn_confirm_stock_update"):
+        if not batch_to_update:
+            st.error("⚠️ Validation Error: Please select a valid batch identifier to update.")
+        else:
+            try:
+                updated = update_stock_quantity(batch_to_update, new_stock_qty)
+                if updated:
+                    st.success(f"✅ Batch '{batch_to_update}' stock quantity successfully updated to {new_stock_qty} units.")
+                    st.rerun()
+                else:
+                    st.error(f"❌ Batch Not Found: Batch '{batch_to_update}' was not found in the database.")
+            except ValueError as ve:
+                st.error(f"❌ Validation Error: {ve}")
+            except DatabaseSaveError as dbe:
+                st.error(f"❌ Database Save Error: {dbe}")
+            except Exception as ex:
+                st.error(f"❌ Unexpected Error: {ex}")
+
 st.divider()
 
 # --- ADD THE BARCODE SCANNER CODE HERE ---
-st.subheader("🔍 Scan a Barcode")
-st.caption("Type or scan a barcode to instantly look up a medicine batch.")
+render_section_header("Scan Barcode", "Type or scan a barcode to instantly look up a medicine batch", icon="🔍")
 
 barcode_input = st.text_input(
     "Enter barcode number:",
@@ -372,37 +576,54 @@ if barcode_input.strip():
 
     if result["found"]:
         urgency = result["urgency"]
+        urg_badge = format_urgency_badge(urgency)
         if urgency == "critical":
             st.error(
-                f"🔴 URGENT — {result['medicine_name']} | "
+                f"{urg_badge} — {result['medicine_name']} | "
+                f"{result['quantity']} units | "
                 f"Expires in {result['dte']} days | "
                 f"Worth £{result['stock_value']:.2f}"
             )
         elif urgency == "near-expiry":
             st.warning(
-                f"🟠 ACT SOON — {result['medicine_name']} | "
+                f"{urg_badge} — {result['medicine_name']} | "
+                f"{result['quantity']} units | "
                 f"Expires in {result['dte']} days | "
                 f"Worth £{result['stock_value']:.2f}"
             )
         elif urgency == "expired":
             st.error(
                 f"❌ EXPIRED — {result['medicine_name']} | "
+                f"{result['quantity']} units | "
                 f"Expired {abs(result['dte'])} days ago"
             )
         else:
             st.success(
-                f"✅ SAFE — {result['medicine_name']} | "
+                f"{urg_badge} — {result['medicine_name']} | "
+                f"{result['quantity']} units | "
                 f"Expires in {result['dte']} days"
             )
 
         col1, col2, col3 = st.columns(3)
-        col1.markdown(f"**Batch:** {result['batch_id']}")
-        col2.markdown(f"**Branch:** {result['branch_name']}")
-        col3.markdown(f"**Quantity:** {result['quantity']} units")
+        col1.markdown(f"🏷️ **Batch ID:** `{result['batch_id']}`")
+        col2.markdown(f"🏥 **Branch:** {result['branch_name']}")
+        col3.markdown(f"📦 **Quantity:** {result['quantity']} units")
 
-        col4, col5 = st.columns(2)
-        col4.markdown(f"**Risk Score:** {result.get('score', 0)}")
-        col5.markdown(f"**Stock Value:** £{result.get('stock_value', 0):.2f}")
+        col4, col5, col6 = st.columns(3)
+        col4.markdown(f"📅 **Expiry Date:** {result.get('expiry_date', 'N/A')}")
+        col5.markdown(f"⏳ **Shelf Life:** {format_shelf_life(result['dte'])}")
+        col6.markdown(f"💷 **Stock Value:** £{result.get('stock_value', 0):.2f}")
+
+        st.caption(f"🎯 **Deterministic Heuristic Risk Score:** {result.get('score', 0)} pts")
+
+        _b_ml_class = result.get("ml_risk_class", "Unavailable")
+        _b_ml_prob = result.get("ml_risk_prob")
+        if _b_ml_class != "Unavailable" and _b_ml_prob is not None:
+            _b_badge = format_risk_badge(
+                "critical" if _b_ml_class == "High" else ("warning" if _b_ml_class == "Medium" else "safe"),
+                f"ADVISORY ML SIGNAL: {_b_ml_class.upper()} RISK ({int(_b_ml_prob * 100)}% probability)"
+            )
+            st.caption(f"🤖 {_b_badge} *(Statistical advisory estimate; does not supersede clinical validation)*")
 
         if result.get("recommendation"):
             rec = result["recommendation"]
@@ -416,34 +637,81 @@ if barcode_input.strip():
                 "⚠️ This barcode was updated. "
                 "The system resolved it to the current batch."
             )
+
+        with st.expander(f"✏️ Quick Quantity Update for Batch {result['batch_id']}", expanded=False):
+            scan_new_qty = st.number_input(
+                "Verified Count (units) *",
+                min_value=0,
+                step=1,
+                value=int(result["quantity"]),
+                key=f"scan_qty_input_{result['batch_id']}",
+                help="Adjust current count on hand directly following barcode verification."
+            )
+            if st.button("💾 Save Verified Quantity", type="primary", key=f"btn_save_scan_{result['batch_id']}"):
+                try:
+                    upd = update_stock_quantity(result["batch_id"], scan_new_qty)
+                    if upd:
+                        st.success(f"✅ Batch '{result['batch_id']}' quantity successfully updated to {scan_new_qty} units.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Batch Not Found: Batch '{result['batch_id']}' was not found in the database.")
+                except ValueError as ve:
+                    st.error(f"❌ Validation Error: {ve}")
+                except DatabaseSaveError as dbe:
+                    st.error(f"❌ Database Error: {dbe}")
+                except Exception as ex:
+                    st.error(f"❌ Unexpected Error: {ex}")
     else:
-        st.error(f"❌ {result['message']}")
+        st.error(f"❌ Barcode Lookup Failed: {result['message']}")
 
 st.divider()
 # --- BARCODE SCANNER CODE ENDS HERE ---
 
-st.subheader(f"📋 {len(recs)} items need attention")
+# Filter actionable batches according to search and status filters if set
+displayed_recs = recs
+if search_filter.strip():
+    q_recs = search_filter.strip().lower()
+    displayed_recs = [
+        r for r in displayed_recs
+        if q_recs in str(r.get("medicine_name", "")).lower() or q_recs in str(r.get("batch_id", "")).lower()
+    ]
+if selected_status_filter != "All Statuses":
+    if "Critical" in selected_status_filter:
+        displayed_recs = [r for r in displayed_recs if r.get("urgency") == "critical"]
+    elif "Act Soon" in selected_status_filter:
+        displayed_recs = [r for r in displayed_recs if r.get("urgency") == "near-expiry"]
+    elif "Watch" in selected_status_filter:
+        displayed_recs = [r for r in displayed_recs if r.get("urgency") == "watch"]
+    elif "Safe" in selected_status_filter:
+        displayed_recs = [r for r in displayed_recs if r.get("urgency") == "safe"]
+    elif "Expired" in selected_status_filter:
+        displayed_recs = [r for r in displayed_recs if r.get("urgency") == "expired"]
+
+render_section_header("Actionable Batches", "Priority inventory requiring redistribution transfers or clinical review", icon="📋", badge_text=f"{len(displayed_recs)} Batches")
+
+if not displayed_recs:
+    if not recs:
+        render_empty_state("No Near-Expiry Stock Needs Action Today", f"All inventory in '{selected}' is currently within safe expiry limits, or all pending transfers have already been processed.", "✅")
+    else:
+        render_empty_state("No Actionable Batches Match Filter", "Try clearing or adjusting your search query and status filter criteria.", "🔍")
 
 # --- Render each recommendation ---
-for i, rec in enumerate(recs):
+for i, rec in enumerate(displayed_recs):
     uid = rec["batch_id"]
     already_confirmed  = uid in st.session_state.confirmed
     already_overridden = uid in st.session_state.overridden
 
     urgency = rec["urgency"]
-    if urgency == "critical":
-        border_color = "#E24B4A"
-        label        = "🔴 URGENT"
-    elif urgency == "near-expiry":
-        border_color = "#F5A623"
-        label        = "🟠 ACT SOON"
-    else:
-        border_color = "#4A90D9"
-        label        = "🔵 REVIEW"
+    theme = get_urgency_theme(urgency)
+    border_color = theme["color"]
+    label        = format_urgency_badge(urgency)
 
     st.markdown(
         f"<div style='border-left:6px solid {border_color};"
-        f"padding:12px;margin-bottom:4px;border-radius:4px'>",
+        f"padding:14px;margin-bottom:12px;border-radius:8px;"
+        f"background-color:#FFFFFF;border-top:1px solid #E2E8F0;"
+        f"border-right:1px solid #E2E8F0;border-bottom:1px solid #E2E8F0;"
+        f"box-shadow:0 1px 3px rgba(0,0,0,0.04)'>",
         unsafe_allow_html=True
     )
 
@@ -469,65 +737,86 @@ for i, rec in enumerate(recs):
             f"Expires in {rec['dte']} days"
         )
 
-    # Details row
-    col_a, col_b, col_c, col_d = st.columns(4)
-    col_a.markdown(f"**Batch:** {rec['batch_id']}")
-    col_b.markdown(f"**Branch:** {rec['branch_name']}")
-    col_c.markdown(f"**Expiry:** {rec['expiry_date']}")
-    col_d.markdown(f"**Confidence:** {rec['confidence']}")
+    # Details row - highly scannable
+    col_a, col_b, col_c, col_d, col_e = st.columns([1.4, 1.4, 1.2, 1.3, 1.5])
+    col_a.markdown(f"🏷️ **Batch:** `{rec['batch_id']}`")
+    col_b.markdown(f"🏥 **Branch:** {rec['branch_name']}")
+    col_c.markdown(f"📦 **Quantity:** {rec['quantity']} units")
+    col_d.markdown(f"📅 **Expiry:** {rec['expiry_date']}")
+    col_e.markdown(f"⏳ **Shelf Life:** {format_shelf_life(rec['dte'])}")
+
+    st.caption(f"💷 **Stock Value at Risk:** £{rec.get('stock_value', 0):,.2f} | 🎯 **Deterministic Heuristic Risk Score:** {rec.get('score', 0)} pts")
 
     # Reason — always visible
-    st.markdown(f"**Why:** {rec['reason']}")
+    st.markdown(f"**Clinical Redistribution Reason:** {rec['reason']}")
 
     if "ml_risk_class" in rec:
         _ml_prob = rec.get("ml_risk_probability")
         _ml_class = rec.get("ml_risk_class", "Unavailable")
         if _ml_class == "Unavailable" or _ml_prob is None:
-            ml_badge = "⬜"
-            prob_str = "N/A"
+            ml_badge = format_risk_badge("unavailable", "ADVISORY ML SIGNAL: UNAVAILABLE")
+            prob_note = "Model prediction not available for this batch profile."
+        elif _ml_class == "High":
+            ml_badge = format_risk_badge("critical", f"ADVISORY ML SIGNAL: HIGH WASTAGE RISK ({int(_ml_prob * 100)}% probability)")
+            prob_note = "Estimated statistical probability of expiry based on historical dispensary velocity and batch attributes."
+        elif _ml_class == "Medium":
+            ml_badge = format_risk_badge("warning", f"ADVISORY ML SIGNAL: MODERATE WASTAGE RISK ({int(_ml_prob * 100)}% probability)")
+            prob_note = "Estimated statistical probability of expiry based on historical dispensary velocity and batch attributes."
         else:
-            prob_str = f"{int(_ml_prob * 100)}%"
-            ml_badge = "🔴" if _ml_class == "High" else ("🟡" if _ml_class == "Medium" else "🟢")
-        st.caption(f"{ml_badge} **ML Expiry Risk Assessment:** {_ml_class} ({prob_str} probability)")
+            ml_badge = format_risk_badge("safe", f"ADVISORY ML SIGNAL: LOW WASTAGE RISK ({int(_ml_prob * 100)}% probability)")
+            prob_note = "Estimated statistical probability of expiry based on historical dispensary velocity and batch attributes."
+
+        st.markdown(
+            f"<div class='advisory-ml-box'>"
+            f"<strong>🤖 {ml_badge}</strong><br/>"
+            f"<span style='color:#64748B; font-size:0.80rem;'>{prob_note} "
+            f"<em>(Supplementary statistical advisory only — does not supersede clinical judgment or rule-based safety criteria)</em></span>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
 
     if "decision_factors" in rec:
-        with st.expander("📊 View Decision Factors"):
+        with st.expander("📊 View Decision Factors & Heuristic Score Breakdown"):
             df_fac = rec["decision_factors"]
             fcol1, fcol2, fcol3, fcol4 = st.columns(4)
-            fcol1.markdown(f"• **Days to expiry:** {df_fac['days_to_expiry']}d")
-            fcol2.markdown(f"• **Current stock:** {df_fac['current_stock']} units")
-            fcol3.markdown(f"• **Source demand:** {df_fac['demand']} units/wk")
+            fcol1.markdown(f"• **Days to Expiry:** {df_fac['days_to_expiry']} days")
+            fcol2.markdown(f"• **Current Stock:** {df_fac['current_stock']} units")
+            fcol3.markdown(f"• **Source Demand:** {df_fac['demand']} units/wk")
             dest_dem_str = f"{df_fac['destination_demand']} units/wk" if df_fac['destination_demand'] is not None else "N/A"
-            fcol4.markdown(f"• **Dest demand:** {dest_dem_str}")
+            fcol4.markdown(f"• **Dest Demand:** {dest_dem_str}")
 
             fcol5, fcol6, fcol7, fcol8 = st.columns(4)
             cap_str = f"{df_fac['available_capacity']} units" if df_fac['available_capacity'] is not None else "N/A"
-            fcol5.markdown(f"• **Capacity:** {cap_str}")
-            fcol6.markdown(f"• **Transfer time:** ~{df_fac['transfer_time_days']}d")
-            fcol7.markdown(f"• **Medicine value:** £{df_fac['medicine_value_gbp']:,.2f}")
-            fcol8.markdown(f"• **Risk score:** {df_fac['risk_score']}")
+            fcol5.markdown(f"• **Dest Capacity:** {cap_str}")
+            fcol6.markdown(f"• **Transit Time:** ~{df_fac['transfer_time_days']} days")
+            fcol7.markdown(f"• **Medicine Value:** £{df_fac['medicine_value_gbp']:,.2f}")
+            fcol8.markdown(f"• **Composite Score:** **{df_fac['risk_score']} pts**")
 
             if "score_components" in df_fac:
                 sc = df_fac["score_components"]
-                st.caption(
-                    f"🎯 **Score Breakdown:** Urgency: {sc['urgency_score']:.1f} pts | "
-                    f"Quantity Volume: {sc['quantity_score']:.1f} pts | "
-                    f"Financial Exposure (£{sc['stock_value']:,.2f}): {sc['value_score']:.1f} pts"
+                st.info(
+                    f"🎯 **Heuristic Score Breakdown ({df_fac['risk_score']} total pts):**\n"
+                    f"- ⏳ **Urgency Factor:** {sc['urgency_score']:.1f} pts (proportional to proximity to expiration)\n"
+                    f"- 📦 **Quantity Volume Factor:** {sc['quantity_score']:.1f} pts (proportional to batch size needing redistribution)\n"
+                    f"- 💷 **Financial Exposure Factor:** {sc['value_score']:.1f} pts (based on £{sc['stock_value']:,.2f} stock value)\n\n"
+                    f"*Higher composite scores indicate batches that face imminent expiration with larger quantities and higher monetary exposure.*"
                 )
 
             if "ml_risk_class" in df_fac:
-                fcol9, fcol10 = st.columns(2)
                 _fac_ml_class = df_fac.get("ml_risk_class", "Unavailable")
                 _fac_ml_prob = df_fac.get("ml_risk_probability")
                 _fac_prob_str = f"{int(_fac_ml_prob * 100)}%" if _fac_ml_prob is not None else "N/A"
-                fcol9.markdown(f"• **ML Risk Class:** {_fac_ml_class}")
-                fcol10.markdown(f"• **ML Risk Probability:** {_fac_prob_str}")
+                _fac_badge = format_risk_badge(
+                    "critical" if _fac_ml_class == "High" else ("warning" if _fac_ml_class == "Medium" else ("safe" if _fac_ml_class == "Low" else "unavailable")),
+                    f"{_fac_ml_class} ({_fac_prob_str} probability)"
+                )
+                st.caption(f"🤖 **Advisory ML Assessment:** {_fac_badge} *(Statistical advisory estimate)*")
 
-    # Action buttons
+    # Action buttons and decision controls
     if already_confirmed:
-        st.success("✅ Transfer confirmed for this session.")
+        st.success("✅ **Transfer Confirmed:** The redistribution action was confirmed by the pharmacist and committed to the SQLite audit log.")
     elif already_overridden:
-        st.info("↩️ This recommendation was overridden.")
+        st.info("↩️ **Transfer Overridden:** Pharmacist rejected this recommendation with clinical justification.")
     elif rec["action"] == "TRANSFER" and rec["destinations"]:
         is_split = rec.get("is_split", False)
         split_dests = rec.get("split_destinations", [])
@@ -536,26 +825,31 @@ for i, rec in enumerate(recs):
             is_split = len(split_dests) > 1
 
         if is_split:
-            st.markdown("🔀 **Split Redistribution Plan (Multi-Branch Allocation):**")
+            st.markdown("#### 🔀 Proposed Split Redistribution Plan")
+            st.caption(
+                f"The system recommends dividing **{rec['quantity']} units** across "
+                f"**{len(split_dests)} destination branches** to respect network capacity limits and prevent over-saturation:"
+            )
             split_cols_header = st.columns([3, 2, 2, 2, 2])
-            split_cols_header[0].markdown("**Destination**")
-            split_cols_header[1].markdown("**Transfer Qty**")
-            split_cols_header[2].markdown("**Weekly Demand**")
-            split_cols_header[3].markdown("**Current Cover**")
-            split_cols_header[4].markdown("**Capacity**")
+            split_cols_header[0].markdown("**🏥 Destination Branch**")
+            split_cols_header[1].markdown("**📦 Transfer Qty**")
+            split_cols_header[2].markdown("**📈 Weekly Demand**")
+            split_cols_header[3].markdown("**⏱️ Stock Cover**")
+            split_cols_header[4].markdown("**📥 Net Capacity**")
 
             for sd in split_dests:
                 scols = st.columns([3, 2, 2, 2, 2])
                 bname = sd.get("branch_name") or sd.get("dest_branch_name")
                 tqty = sd.get("transfer_quantity", 0)
+                share_pct = int((tqty / rec["quantity"] * 100)) if rec["quantity"] > 0 else 0
                 dem = sd.get("demand") if sd.get("demand") is not None else sd.get("dest_demand_per_week", 0)
                 woc = sd.get("weeks_of_cover") if sd.get("weeks_of_cover") is not None else sd.get("dest_weeks_of_cover", 0.0)
                 cap = sd.get("capacity") if sd.get("capacity") is not None else sd.get("dest_capacity", 0)
 
                 scols[0].markdown(f"🏥 **{bname}**")
-                scols[1].markdown(f"**{tqty} units**")
-                scols[2].markdown(f"{dem} /wk")
-                scols[3].markdown(f"{woc} wks")
+                scols[1].markdown(f"**{tqty} units** `({share_pct}%)`")
+                scols[2].markdown(f"{dem} units/wk")
+                scols[3].markdown(f"{woc:.1f} wks")
                 scols[4].markdown(f"{cap} units")
 
             dest_display = ", ".join(f"{sd.get('branch_name') or sd.get('dest_branch_name')} ({sd.get('transfer_quantity', 0)}u)" for sd in split_dests)
@@ -563,19 +857,30 @@ for i, rec in enumerate(recs):
             best      = rec["destinations"][0]
             dest_name = best["dest_branch_name"]
             dest_display = dest_name
+            st.markdown("#### 🚚 Proposed Single-Branch Transfer")
             st.markdown(
-                f"**Suggested transfer:** {rec['quantity']} units "
-                f"→ **{dest_name}**"
+                f"The system recommends transferring **{rec['quantity']} units** "
+                f"from **{rec['branch_name']}** ➡️ **{dest_name}**."
             )
+            r_col1, r_col2, r_col3 = st.columns(3)
+            r_col1.markdown(f"📦 **Transfer Quantity:** {rec['quantity']} units")
+            dest_dem = best.get("demand", best.get("dest_demand_per_week", "N/A"))
+            r_col2.markdown(f"📈 **Destination Demand:** {dest_dem} units/wk")
+            dest_cap = best.get("capacity", best.get("dest_capacity", "N/A"))
+            r_col3.markdown(f"📥 **Destination Capacity:** {dest_cap} units")
+
+        st.markdown("---")
+        st.markdown("##### ⚖️ Pharmacist Action Required")
+        st.caption("Advisory recommendation. No inventory will be transferred until explicitly confirmed by the pharmacist.")
 
         if rec["requires_confirmation"]:
-            st.caption(
-                "⚠️ This is a large transfer (high-impact). "
-                "Please confirm or override below."
+            st.warning(
+                f"⚠️ **High-Impact Transfer Threshold:** This transfer exceeds high-impact criteria "
+                f"(£{rec['stock_value']:.2f} value or {rec['quantity']} units). Explicit pharmacist confirmation or override reason required."
             )
-            btn_col, reason_col = st.columns([1, 2])
+            btn_col, reason_col = st.columns([1, 1.8])
             with btn_col:
-                confirm_label = "✅ Confirm Split Transfer" if is_split else "✅ Confirm Transfer"
+                confirm_label = f"✅ Confirm Split Transfer ({rec['quantity']}u)" if is_split else f"✅ Confirm Transfer to {dest_name}"
                 if st.button(confirm_label,
                              key=f"confirm_{i}",
                              type="primary"):
@@ -594,9 +899,10 @@ for i, rec in enumerate(recs):
                         st.error(DECISION_SAVE_ERROR_MESSAGE)
             with reason_col:
                 reason_text = st.text_input(
-                    "Override reason (required before rejecting):",
+                    "Override Reason (clinical justification required to reject) *",
                     key=f"reason_{i}",
-                    placeholder="e.g. Branch already has enough stock"
+                    placeholder="e.g. Branch already ordered local stock, or clinical preference",
+                    help="Mandatory clinical justification recorded into the audit trail."
                 )
                 if st.button("↩️ Override / Reject",
                              key=f"override_{i}"):
@@ -615,32 +921,62 @@ for i, rec in enumerate(recs):
                             st.error(DECISION_SAVE_ERROR_MESSAGE)
                     else:
                         st.error(
-                            "Please type a reason before overriding."
+                            "⚠️ Justification Required: Please type a clinical reason before overriding this recommendation."
                         )
         else:
-            action_button_label = f"✅ Confirm Split Transfer ({len(split_dests)} branches)" if is_split else f"✅ Transfer to {dest_display}"
-            if st.button(action_button_label,
-                         key=f"go_{i}"):
-                saved = record_recommendation_action(
-                    rec=rec,
-                    action="CONFIRMED",
-                    user_name=st.session_state.current_user["name"],
-                    destination=dest_display,
-                    is_split=is_split,
-                    split_dests=split_dests,
-                )
-                if saved:
-                    st.session_state.confirmed.add(uid)
-                    st.rerun()
-                else:
-                    st.error(DECISION_SAVE_ERROR_MESSAGE)
+            btn_col, reason_col = st.columns([1, 1.8])
+            with btn_col:
+                action_button_label = f"✅ Confirm Split Transfer ({len(split_dests)} branches)" if is_split else f"✅ Transfer to {dest_display}"
+                if st.button(action_button_label,
+                             key=f"go_{i}",
+                             type="primary"):
+                    saved = record_recommendation_action(
+                        rec=rec,
+                        action="CONFIRMED",
+                        user_name=st.session_state.current_user["name"],
+                        destination=dest_display,
+                        is_split=is_split,
+                        split_dests=split_dests,
+                    )
+                    if saved:
+                        st.session_state.confirmed.add(uid)
+                        st.rerun()
+                    else:
+                        st.error(DECISION_SAVE_ERROR_MESSAGE)
+            with reason_col:
+                with st.expander("↩️ Reject / Override this Recommendation"):
+                    std_reason_text = st.text_input(
+                        "Override Reason (clinical justification required) *",
+                        key=f"std_reason_{i}",
+                        placeholder="e.g. Local dispensary stock buffer needed",
+                        help="Enter clinical justification to override this automated recommendation."
+                    )
+                    if st.button("Confirm Clinical Override", key=f"std_override_{i}"):
+                        if std_reason_text.strip():
+                            saved = record_recommendation_action(
+                                rec=rec,
+                                action="OVERRIDDEN",
+                                user_name=st.session_state.current_user["name"],
+                                destination=dest_display,
+                                override_reason=std_reason_text,
+                            )
+                            if saved:
+                                st.session_state.overridden.add(uid)
+                                st.rerun()
+                            else:
+                                st.error(DECISION_SAVE_ERROR_MESSAGE)
+                        else:
+                            st.error("⚠️ Justification Required: Please type a clinical reason before overriding this recommendation.")
 
     elif rec["action"] == "FLAG_FOR_REVIEW":
         st.warning(
-            "⚠️ Could not automatically match this item to a "
-            "receiving branch. Please review manually."
+            "⚠️ **Manual Clinical Review Required:** The redistribution engine evaluated potential destination branches "
+            "across the network but could not discover a viable automated match (receiving branches may be at capacity, report zero dispensing demand, or contain insufficient shelf-life absorption buffer)."
         )
-        if st.button("📋 Mark as Reviewed", key=f"review_{i}"):
+        st.info(f"💡 **Review Justification:** {rec['reason']}")
+        st.markdown("##### ⚖️ Pharmacist Action Required")
+        st.caption("Review batch manually and confirm local dispensing or disposal protocol.")
+        if st.button("📋 Mark as Reviewed", key=f"review_{i}", type="primary"):
             saved = record_recommendation_action(
                 rec=rec,
                 action="MANUALLY_REVIEWED",
@@ -656,10 +992,10 @@ for i, rec in enumerate(recs):
     st.divider()
 
 # --- Decision log (loaded from SQLite — the sole authoritative audit log) ---
-st.subheader("📁 Decision Log (Audit Trail)")
+render_section_header("Decision Log", "Authoritative SQLite audit trail of all operational confirmations and overrides", icon="📁", badge_text="Audit Trail")
 _persistent_log = load_log()
 if not _persistent_log.empty:
-    st.dataframe(_persistent_log, use_container_width=True)
+    st.dataframe(_persistent_log, use_container_width=True, hide_index=True)
     st.download_button(
         "⬇️ Download Decision Log as CSV",
         _persistent_log.to_csv(index=False),
@@ -667,7 +1003,8 @@ if not _persistent_log.empty:
         mime="text/csv"
     )
 else:
-    st.caption(
-        "No decisions recorded yet. "
-        "Confirm or override a recommendation above."
+    render_empty_state(
+        "No Decisions Recorded Yet",
+        "Operational decisions (confirmed transfers and overrides) will appear here in the audit trail once recorded.",
+        "📁"
     )
