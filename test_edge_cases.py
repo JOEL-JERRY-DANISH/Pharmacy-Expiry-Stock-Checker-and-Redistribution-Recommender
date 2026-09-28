@@ -15,6 +15,11 @@ from recommender import (
     urgency_label,
     validate_numeric_field,
     validate_batch_numerics,
+    WEIGHT_DEMAND_VELOCITY,
+    WEIGHT_WASTE_AVOIDANCE,
+    WEIGHT_TRANSIT_FEASIBILITY,
+    calculate_destination_score,
+    normalize_metric,
 )
 from barcode_registry import BarcodeRegistry
 from barcode_lookup import lookup_barcode
@@ -4933,3 +4938,231 @@ class TestDecisionSaveFailureHandling(unittest.TestCase):
         from app import DECISION_SAVE_ERROR_MESSAGE
         self.assertIn("The decision could not be saved", DECISION_SAVE_ERROR_MESSAGE)
         self.assertIn("action was not confirmed", DECISION_SAVE_ERROR_MESSAGE)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Formalized Multi-Criteria Destination Ranking Tests
+# ─────────────────────────────────────────────────────────────────────────────
+class TestMultiCriteriaDestinationRanking(unittest.TestCase):
+    """
+    Focused verification for the formalized multi-criteria objective function
+    ranking destination branches:
+    1. Higher demand velocity affects ranking.
+    2. Higher stock value affects ranking.
+    3. Better transit margin affects ranking.
+    4. Weighted score calculation is mathematically correct.
+    5. Normalized values remain between 0 and 1.
+    6. Equal candidates produce deterministic ordering.
+    7. Zero-range normalization does not divide by zero.
+    8. Zero storage capacity remains excluded.
+    9. Zero demand remains excluded.
+    10. Expired stock remains excluded.
+    11. Impossible transit remains excluded.
+    12. Existing split allocation constraints remain unchanged.
+    """
+
+    def test_1_higher_demand_velocity_affects_ranking(self):
+        """Higher demand velocity increases normalized demand score and elevates ranking."""
+        source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        # Candidate A and Candidate B have identical stock, capacity, and transit
+        # But Candidate A has higher demand velocity (50 vs 20 units/wk)
+        cand_a = make_row(100, 10, 50, 200, branch_id="BR_A", branch_name="Fast Dispensing")
+        cand_b = make_row(100, 10, 20, 200, branch_id="BR_B", branch_name="Slow Dispensing")
+
+        df = pd.DataFrame([source, cand_a, cand_b])
+        dests, status, _ = find_destinations(source, df)
+
+        self.assertEqual(status, "OK")
+        self.assertEqual(len(dests), 2)
+        self.assertEqual(dests[0]["dest_branch_id"], "BR_A")
+        self.assertEqual(dests[1]["dest_branch_id"], "BR_B")
+        self.assertGreater(dests[0]["destination_score"], dests[1]["destination_score"])
+        self.assertGreater(dests[0]["normalized_demand_score"], dests[1]["normalized_demand_score"])
+        self.assertEqual(dests[0]["normalized_demand_score"], 1.0)
+        self.assertEqual(dests[1]["normalized_demand_score"], 0.0)
+
+    def test_2_higher_stock_value_affects_ranking(self):
+        """Higher stock shortage / protected value increases normalized value score and elevates ranking."""
+        source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source", cost=2.0)
+        # Candidate A and Candidate B have identical demand (30/wk) and transit
+        # But Candidate A has zero stock (severe shortage, high protected value £360)
+        # Candidate B has 150 stock (5 weeks cover, low protected value £60)
+        cand_a = make_row(100, 0, 30, 200, branch_id="BR_A", branch_name="High Shortage", cost=2.0)
+        cand_b = make_row(100, 150, 30, 200, branch_id="BR_B", branch_name="Low Shortage", cost=2.0)
+
+        df = pd.DataFrame([source, cand_a, cand_b])
+        dests, status, _ = find_destinations(source, df)
+
+        self.assertEqual(status, "OK")
+        self.assertEqual(dests[0]["dest_branch_id"], "BR_A")
+        self.assertGreater(dests[0]["destination_score"], dests[1]["destination_score"])
+        self.assertGreater(dests[0]["normalized_value_score"], dests[1]["normalized_value_score"])
+        self.assertEqual(dests[0]["normalized_value_score"], 1.0)
+        self.assertEqual(dests[1]["normalized_value_score"], 0.0)
+
+    def test_3_better_transit_margin_affects_ranking(self):
+        """Greater transit margin (shorter transit time) increases normalized transit score and elevates ranking."""
+        source = make_row(10, 50, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        # Identical demand (30/wk), capacity (200), and stock (10)
+        # Candidate A has 1 day transit (margin = 10 - 1 = 9 days)
+        # Candidate B has 4 days transit (margin = 10 - 4 = 6 days)
+        cand_a = make_row(100, 10, 30, 200, branch_id="BR_NEAR", branch_name="Near Branch")
+        cand_a["transfer_days"] = 1
+        cand_b = make_row(100, 10, 30, 200, branch_id="BR_FAR", branch_name="Far Branch")
+        cand_b["transfer_days"] = 4
+
+        df = pd.DataFrame([source, cand_a, cand_b])
+        dests, status, _ = find_destinations(source, df)
+
+        self.assertEqual(status, "OK")
+        self.assertEqual(dests[0]["dest_branch_id"], "BR_NEAR")
+        self.assertGreater(dests[0]["destination_score"], dests[1]["destination_score"])
+        self.assertGreater(dests[0]["normalized_transit_score"], dests[1]["normalized_transit_score"])
+        self.assertEqual(dests[0]["normalized_transit_score"], 1.0)
+        self.assertEqual(dests[1]["normalized_transit_score"], 0.0)
+
+    def test_4_weighted_score_calculation_is_mathematically_correct(self):
+        """The weighted objective function mathematically matches its documented linear combination."""
+        # Weights must sum strictly to 1.0
+        total_weights = WEIGHT_DEMAND_VELOCITY + WEIGHT_WASTE_AVOIDANCE + WEIGHT_TRANSIT_FEASIBILITY
+        self.assertAlmostEqual(total_weights, 1.0, places=5)
+
+        # Mathematical test case:
+        # demand = 0.8, value = 0.6, transit = 1.0
+        # expected = 0.35 * 0.8 + 0.45 * 0.6 + 0.20 * 1.0 = 0.28 + 0.27 + 0.20 = 0.75
+        expected = round(WEIGHT_DEMAND_VELOCITY * 0.8 + WEIGHT_WASTE_AVOIDANCE * 0.6 + WEIGHT_TRANSIT_FEASIBILITY * 1.0, 4)
+        calculated = calculate_destination_score(0.8, 0.6, 1.0)
+        self.assertEqual(calculated, expected)
+
+    def test_5_normalized_values_remain_between_0_and_1(self):
+        """Normalized criteria and final destination scores remain strictly in [0.0, 1.0]."""
+        test_inputs = [
+            (0, 0, 100),
+            (50, 0, 100),
+            (100, 0, 100),
+            (-50, -100, 0),
+            (200, 0, 100),   # clamped above
+            (-10, 0, 100),   # clamped below
+        ]
+        for val, mn, mx in test_inputs:
+            norm = normalize_metric(val, mn, mx)
+            self.assertGreaterEqual(norm, 0.0)
+            self.assertLessEqual(norm, 1.0)
+
+        # Combination extremes for destination_score
+        self.assertEqual(calculate_destination_score(0.0, 0.0, 0.0), 0.0)
+        self.assertEqual(calculate_destination_score(1.0, 1.0, 1.0), 1.0)
+
+    def test_6_equal_candidates_produce_deterministic_ordering(self):
+        """When two candidates have identical criteria scores, deterministic tie-breaking by branch_id is used."""
+        source = make_row(25, 50, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        # Candidate 1 and Candidate 2 have exactly identical metrics
+        cand_z = make_row(100, 10, 30, 200, branch_id="BR_Z", branch_name="Branch Z")
+        cand_a = make_row(100, 10, 30, 200, branch_id="BR_A", branch_name="Branch A")
+
+        # In DataFrame, put Z first
+        df1 = pd.DataFrame([source, cand_z, cand_a])
+        dests1, _, _ = find_destinations(source, df1)
+
+        # In DataFrame, put A first
+        df2 = pd.DataFrame([source, cand_a, cand_z])
+        dests2, _, _ = find_destinations(source, df2)
+
+        # Both runs must produce BR_A first, then BR_Z (alphabetical tie-breaker)
+        self.assertEqual(dests1[0]["dest_branch_id"], "BR_A")
+        self.assertEqual(dests1[1]["dest_branch_id"], "BR_Z")
+        self.assertEqual(dests2[0]["dest_branch_id"], "BR_A")
+        self.assertEqual(dests2[1]["dest_branch_id"], "BR_Z")
+
+    def test_7_zero_range_normalization_does_not_divide_by_zero(self):
+        """When all candidates have identical values (range = 0), normalization returns 1.0 without dividing by zero."""
+        # Function level:
+        result = normalize_metric(42.0, 42.0, 42.0, default_val=1.0)
+        self.assertEqual(result, 1.0)
+
+        # End-to-end level: single candidate or identical candidate metrics
+        source = make_row(25, 50, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        cand1 = make_row(100, 20, 30, 500, branch_id="BR_1", branch_name="Branch 1")
+        cand2 = make_row(100, 20, 30, 500, branch_id="BR_2", branch_name="Branch 2")
+
+        df = pd.DataFrame([source, cand1, cand2])
+        dests, status, _ = find_destinations(source, df)
+        self.assertEqual(status, "OK")
+        for d in dests:
+            self.assertEqual(d["normalized_demand_score"], 1.0)
+            self.assertEqual(d["normalized_value_score"], 1.0)
+            self.assertEqual(d["normalized_transit_score"], 1.0)
+            self.assertEqual(d["destination_score"], 1.0)
+
+    def test_8_zero_storage_capacity_remains_excluded(self):
+        """Candidate destinations with zero storage capacity are strictly rejected before scoring."""
+        source = make_row(25, 50, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        dest_zero_cap = make_row(100, 0, 50, 0, branch_id="BR_ZERO_CAP", branch_name="Zero Cap")
+        dest_valid = make_row(100, 0, 50, 200, branch_id="BR_VALID", branch_name="Valid Cap")
+
+        df = pd.DataFrame([source, dest_zero_cap, dest_valid])
+        dests, status, _ = find_destinations(source, df)
+        self.assertEqual(status, "OK")
+        dest_ids = [d["dest_branch_id"] for d in dests]
+        self.assertNotIn("BR_ZERO_CAP", dest_ids)
+        self.assertIn("BR_VALID", dest_ids)
+
+    def test_9_zero_demand_remains_excluded(self):
+        """Candidate destinations with zero demand are strictly rejected before scoring."""
+        source = make_row(25, 50, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        dest_zero_dem = make_row(100, 10, 0, 500, branch_id="BR_ZERO_DEM", branch_name="Zero Dem")
+        dest_valid = make_row(100, 10, 30, 500, branch_id="BR_VALID", branch_name="Valid Dem")
+
+        df = pd.DataFrame([source, dest_zero_dem, dest_valid])
+        dests, status, _ = find_destinations(source, df)
+        self.assertEqual(status, "OK")
+        dest_ids = [d["dest_branch_id"] for d in dests]
+        self.assertNotIn("BR_ZERO_DEM", dest_ids)
+        self.assertIn("BR_VALID", dest_ids)
+
+    def test_10_expired_stock_remains_excluded(self):
+        """Expired source stock (dte < 0) is hard-rejected before destination evaluation."""
+        source = make_row(-1, 50, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        dest = make_row(100, 10, 40, 500, branch_id="BR_DEST", branch_name="Dest")
+
+        df = pd.DataFrame([source, dest])
+        dests, status, msg = find_destinations(source, df)
+        self.assertEqual(status, "EXPIRED_STOCK")
+        self.assertEqual(len(dests), 0)
+
+    def test_11_impossible_transit_remains_excluded(self):
+        """Batches where transit time >= days to expiry are rejected as transit-infeasible."""
+        # 1. Source-level transit infeasibility: dte=2, transfer_days=2
+        source = make_row(2, 50, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        dest = make_row(100, 10, 40, 500, branch_id="BR_DEST", branch_name="Dest")
+        df = pd.DataFrame([source, dest])
+        dests, status, msg = find_destinations(source, df, transfer_days=2)
+        self.assertEqual(status, "TRANSIT_INFEASIBLE")
+        self.assertEqual(len(dests), 0)
+
+        # 2. Candidate-level impossible transit: source dte=4, cand_far transfer_days=5
+        source2 = make_row(4, 50, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        cand_far = make_row(100, 10, 40, 500, branch_id="BR_FAR", branch_name="Far")
+        cand_far["transfer_days"] = 5  # transit > dte
+        cand_near = make_row(100, 10, 40, 500, branch_id="BR_NEAR", branch_name="Near")
+        cand_near["transfer_days"] = 1  # transit < dte
+        df2 = pd.DataFrame([source2, cand_far, cand_near])
+        dests2, status2, _ = find_destinations(source2, df2, transfer_days=1)
+        self.assertEqual(status2, "OK")
+        dest_ids = [d["dest_branch_id"] for d in dests2]
+        self.assertNotIn("BR_FAR", dest_ids)
+        self.assertIn("BR_NEAR", dest_ids)
+
+    def test_12_existing_split_allocation_constraints_remain_unchanged(self):
+        """Split allocation behavior respects individual capacity and never allocates more than source quantity."""
+        source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source")
+        cand1 = make_row(100, 0, 40, 60, branch_id="BR_1", branch_name="Branch 1")
+        cand2 = make_row(100, 0, 30, 60, branch_id="BR_2", branch_name="Branch 2")
+
+        df = pd.DataFrame([source, cand1, cand2])
+        dests, status, _ = find_destinations(source, df)
+        self.assertEqual(status, "OK")
+        self.assertEqual(len(dests), 2)
+        self.assertEqual(dests[0]["transfer_quantity"], 60)
+        self.assertEqual(dests[1]["transfer_quantity"], 40)
+        self.assertEqual(sum(d["transfer_quantity"] for d in dests), 100)

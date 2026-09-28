@@ -95,7 +95,7 @@ There is a need for an automated decision-support system that analyzes branch in
 | 12 | Secure user authentication using salted PBKDF2-HMAC-SHA256 with legacy migration support | ✅ COMPLETED |
 | 13 | Provide role-restricted administrative analytics with current network health and financial exposure metrics | ✅ COMPLETED |
 | 14 | Integrate a supporting Random Forest ML model to predict expiry risk without overriding safety rules | ✅ COMPLETED |
-| 15 | Verify implemented functionality through comprehensive automated tests (235 passing tests) | ✅ COMPLETED |
+| 15 | Verify implemented functionality through comprehensive automated tests (247 passing tests) | ✅ COMPLETED |
 
 ---
 
@@ -201,7 +201,7 @@ There is a need for an automated decision-support system that analyzes branch in
 | **Authentication** | [hashlib](https://docs.python.org/3/library/hashlib.html) & [secrets](https://docs.python.org/3/library/secrets.html) | Python standard library | PBKDF2-HMAC-SHA256 (100k rounds, 128-bit salt, `hmac.compare_digest`) |
 | **Alerting** | [smtplib](https://docs.python.org/3/library/smtplib.html) | Python standard library | Automated SMTP notifications for critical near-expiry batches |
 | **Configuration** | [python-dotenv](https://pypi.org/project/python-dotenv/) | Standards-compliant | Environment variable configuration and Streamlit secrets management |
-| **Testing** | [pytest](https://pytest.org/) | Automated Suite | 235 deterministic unit, boundary, integration, and security tests |
+| **Testing** | [pytest](https://pytest.org/) | Automated Suite | 247 deterministic unit, boundary, integration, and security tests |
 
 ---
 
@@ -222,19 +222,60 @@ $$\text{Score} = \text{Urgency Points} + \text{Quantity Weight} + \text{Financia
 | **Quantity Weight** | $\min\left(\frac{\text{quantity}}{500}, 1.0\right) \times 30.0$ | **0.0 – 30.0** |
 | **Financial Value Weight** | $\min\left(\frac{\text{unit\_cost\_gbp}}{5.0}, 1.0\right) \times 20.0$ | **0.0 – 20.0** |
 
-### 7.2 Destination Selection & Need Calculation
+### 7.2 Hard Safety Constraints (Eligibility Gate)
 
-For each actionable batch, the engine identifies potential receiving branches carrying the same medicine and calculates **Destination Need** based on remaining shelf life:
+The recommendation engine strictly enforces non-negotiable safety boundaries. These constraints execute **prior to destination ranking** to determine whether a branch is eligible to receive stock. A candidate destination that violates any safety rule is immediately disqualified and is never considered by the ranking function. High objective scores cannot override a safety rejection.
 
-$$\text{Expected Demand Before Expiry} = \left(\frac{\text{demand\_per\_week}}{7}\right) \times \text{Remaining Shelf Life (Days)}$$
+1. **Source Quantity Validation:** Source quantity must be a strictly positive integer ($> 0$). Invalid or non-numeric stock values are quarantined with `FLAG_FOR_REVIEW`.
+2. **No Expired Stock Redistribution:** Batches with $\text{Days to Expiry} < 0$ are immediately excluded from transfer recommendations (`EXPIRED_STOCK`).
+3. **Source Transit Feasibility:** If estimated transit time meets or exceeds remaining shelf life ($\text{Transit Days} \ge \text{Days to Expiry}$), the batch cannot be transferred and is assigned `FLAG_FOR_REVIEW` (`TRANSIT_INFEASIBLE`) for urgent local dispensing or disposal.
+4. **Source Branch Exclusion:** The source branch is strictly excluded from its own candidate pool.
+5. **Zero-Demand Destination Rejection:** Branches with $\text{demand\_per\_week} \le 0$ are excluded; stock is never sent to branches with no recorded dispensing demand.
+6. **Zero-Capacity Destination Rejection:** Branches with $\text{branch\_capacity\_remaining} \le 0$ are excluded; stock is never sent to full branches.
+7. **Candidate Transit Feasibility:** If branch-specific transit time exceeds the batch's remaining shelf life ($\text{Candidate Transit Days} \ge \text{Days to Expiry}$), the candidate is disqualified.
+8. **Network Capacity Sufficiency:** If total available capacity across all viable branches is less than the source quantity, the batch cannot be fully accommodated and triggers `FLAG_FOR_REVIEW` for manual pharmacist review.
 
-$$\text{Destination Need} = \max\left(0, \lfloor\text{Expected Demand}\rfloor - \text{Destination Current Stock}\right)$$
+### 7.3 Formalized Multi-Criteria Objective Destination Ranking
 
-Branches with higher calculated need scores are prioritized. Up to 3 destinations can receive split allocations.
+Once candidate branches pass all hard safety constraints, they are ranked using a normalized, weighted linear objective function:
 
-### 7.3 Multi-Branch Split Allocation Constraints
+$$\text{destination\_score} = (w_{\text{demand}} \cdot S_{\text{demand}}) + (w_{\text{value}} \cdot S_{\text{value}}) + (w_{\text{transit}} \cdot S_{\text{transit}})$$
 
-When allocating stock from a source batch across destination branches:
+#### Normalized Objective Criteria:
+
+1. **Demand Velocity Score ($S_{\text{demand}} \in [0.0, 1.0]$):**
+   Measures destination weekly dispensing demand ($d_i$) relative to viable candidate branches. Higher weekly demand facilitates rapid stock turnover and mitigates secondary expiry risk.
+   $$S_{\text{demand}} = \frac{d_i - \min(d)}{\max(d) - \min(d)} \quad (\text{defaults to } 1.0 \text{ if } \max == \min)$$
+
+2. **Stock Value / Waste Avoidance Score ($S_{\text{value}} \in [0.0, 1.0]$):**
+   Measures the stock shortage value protected from expiry at destination $i$ within a standard 6-week target coverage horizon:
+   $$\text{Shortage Units}_i = \max(0, 6.0 \times d_i - \text{Current Stock}_i)$$
+   $$\text{Value Protected}_i = \text{Shortage Units}_i \times \text{Unit Cost}$$
+   Normalized to $[0.0, 1.0]$ across viable candidates. Higher shortage value protected indicates higher waste reduction impact.
+
+3. **Transit Feasibility Score ($S_{\text{transit}} \in [0.0, 1.0]$):**
+   Measures the remaining shelf-life safety margin post-transit:
+   $$\text{Transit Margin}_i = \max(0, \text{Days to Expiry} - \text{Transit Days}_i)$$
+   Normalized to $[0.0, 1.0]$ across viable candidates. Destinations with larger post-transit shelf life margins receive higher scores.
+
+#### Explicit Constant Weights:
+
+| Constant | Weight | Strategic Clinical / Supply Chain Rationale |
+|----------|:------:|---------------------------------------------|
+| `WEIGHT_DEMAND_VELOCITY` | **0.35** | Prioritizes branches with proven clinical dispensing rate to ensure rapid absorption before expiry. |
+| `WEIGHT_WASTE_AVOIDANCE` | **0.45** | Primary driver: routes stock to locations with genuine inventory shortage, maximizing financial and clinical waste reduction. |
+| `WEIGHT_TRANSIT_FEASIBILITY` | **0.20** | Operational buffer: favors destinations with shorter transit times and greater remaining shelf life margin. |
+| **Sum** | **1.00** | Strict mathematical normalization guarantees $\text{destination\_score} \in [0.0, 1.0]$. |
+
+#### Mathematical Safety, Determinism & Decision-Support Scope:
+
+- **Zero-Range Safety:** When all viable candidates share identical metric values ($\max == \min$), zero-range normalization safely returns $1.0$ without division-by-zero.
+- **Deterministic Ordering:** Ties in `destination_score` are broken deterministically by secondary explainability score (`need_score`), lowest weeks of cover, highest weekly demand, and finally alphabetical branch ID (`dest_branch_id`).
+- **Clinical Decision-Support Disclaimer:** This objective function serves as a deterministic heuristic to support pharmacist decision-making. It does not claim clinical trial validation or global mathematical optimality; pharmacists retain final clinical override authority.
+
+### 7.4 Multi-Branch Split Allocation Constraints
+
+When allocating stock from a source batch across the top ranked destination branches:
 
 1. **Individual Allocation Cap:** An individual transfer to branch $i$ cannot exceed the available stock, destination need, or destination capacity:
    $$\text{Transfer}_i \le \min(\text{Source Quantity Remaining}, \text{Destination Need}_i, \text{Destination Capacity}_i)$$
@@ -242,16 +283,6 @@ When allocating stock from a source batch across destination branches:
    $$\sum_{i} \text{Transfer}_i \le \text{Source Quantity}$$
 3. **Absorption Percentage:** Calculated per destination to quantify clinical utility:
    $$\text{Absorption Pct} = \begin{cases} 0.0\% & \text{if } \text{Transfer}_i \le 0 \\ \min\left(100.0, \frac{\text{Expected Demand}_i}{\text{Transfer}_i} \times 100.0\right) & \text{if } \text{Transfer}_i > 0 \end{cases}$$
-
-### 7.4 Hard Safety Rules (Enforced by the Implementation)
-
-The recommendation engine strictly enforces the following non-negotiable boundaries:
-
-1. **No Expired Stock Redistribution:** Batches with `days_to_expiry < 0` are immediately excluded from transfer recommendations.
-2. **Zero-Demand Destination Rejection:** Branches with `demand_per_week == 0` never receive stock.
-3. **Zero-Capacity Destination Rejection:** Branches with `branch_capacity_remaining == 0` never receive stock.
-4. **Transit Infeasibility Quarantine:** If estimated transit time meets or exceeds remaining shelf life ($\text{Transit Days} \ge \text{Shelf Life}$), the batch is marked as infeasible for transfer and assigned `FLAG_FOR_REVIEW` for local expedited dispensing or safe disposal.
-5. **No Negative Quantities:** All inventory quantities, demands, costs, and capacities are validated; negative values are rejected or sanitized safely.
 
 ---
 
@@ -574,7 +605,7 @@ Evaluates the Random Forest model on the dataset and writes metrics to `data/ml_
 
 ## 17. Testing & Verification (Actual Testing Results)
 
-The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](test_edge_cases.py). The suite has evolved from the initial foundational suite to **235 passing tests** covering functional boundaries, edge cases, and defined safety constraints across the project.
+The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](test_edge_cases.py). The suite has evolved from the initial foundational suite to **247 passing tests** covering functional boundaries, edge cases, and defined safety constraints across the project.
 
 ### Run the Full Test Suite
 
@@ -587,14 +618,14 @@ pytest -q
 ### Verified Test Suite Execution Output (Actual Testing Results)
 
 ```
-........................................................................ [ 30%]
-........................................................................ [ 61%]
-........................................................................ [ 91%]
-...................                                                      [100%]
-235 passed
+........................................................................ [ 29%]
+........................................................................ [ 58%]
+........................................................................ [ 87%]
+...............................                                          [100%]
+247 passed in 18.79s
 ```
 
-### Test Suite Architecture (31 Test Classes, 235 Tests)
+### Test Suite Architecture (32 Test Classes, 247 Tests)
 
 | Test Class | Focus Area | Test Count |
 |------------|------------|:----------:|
@@ -629,7 +660,8 @@ pytest -q
 | `TestPhase12DatabaseFallback` | Prevention of silent CSV fallback on SQLite database failure | 5 |
 | `TestPhase13SaveDecisionAudit` | Transactional rollback and error surfacing on decision save failure | 5 |
 | `TestDecisionSaveFailureHandling` | Session state protection and error surfacing on decision save failure | 8 |
-| **Total Verified Tests** | **Deterministic, isolated unit and edge-case tests** | **235 Passed** |
+| `TestMultiCriteriaDestinationRanking` | Formalized objective function: demand velocity, stock value, transit margin, zero-range safety, tie-breaking | 12 |
+| **Total Verified Tests** | **Deterministic, isolated unit and edge-case tests** | **247 Passed** |
 
 ---
 
@@ -757,5 +789,5 @@ Pharmacy-Expiry-Stock-Checker-and-Redistribution-Recommender/
 ├── README.md                       # Comprehensive system documentation (this file)
 ├── recommender.py                  # Deterministic scoring, need calculation, & allocation engine
 ├── requirements.txt                # Python package dependencies
-└── test_edge_cases.py              # Automated test suite (235 deterministic unit/boundary tests)
+└── test_edge_cases.py              # Automated test suite (247 deterministic unit/boundary tests)
 ```

@@ -9,14 +9,72 @@ from constants import (
     DEFAULT_TRANSFER_DAYS,
 )
 
+# Multi-Criteria Objective Function Weights for Destination Ranking
+# Default weights sum strictly to 1.00:
+# - WEIGHT_DEMAND_VELOCITY (0.35): Prioritizes destinations with higher dispensing
+#   velocity to ensure rapid absorption and prevent stock stagnation.
+# - WEIGHT_WASTE_AVOIDANCE (0.45): Prioritizes protecting inventory value by routing
+#   stock to branches with real replenishment shortage need rather than overstocked locations.
+# - WEIGHT_TRANSIT_FEASIBILITY (0.20): Provides an operational safety buffer favoring
+#   destinations with shorter transit times and greater remaining shelf life margin.
+WEIGHT_DEMAND_VELOCITY = 0.35
+WEIGHT_WASTE_AVOIDANCE = 0.45
+WEIGHT_TRANSIT_FEASIBILITY = 0.20
+
 # Re-export so that code importing directly from recommender continues to work.
 __all__ = [
     "MIN_QTY", "HIGH_VALUE", "HIGH_QTY", "DEFAULT_TRANSFER_DAYS",
+    "WEIGHT_DEMAND_VELOCITY", "WEIGHT_WASTE_AVOIDANCE", "WEIGHT_TRANSIT_FEASIBILITY",
+    "normalize_metric", "calculate_destination_score",
     "days_to_expiry", "urgency_label", "score_batch", "get_score_components",
     "calculate_need_score", "calculate_destination_need", "find_destinations",
     "generate_recommendations", "calculate_baseline",
     "validate_numeric_field", "validate_batch_numerics",
 ]
+
+def normalize_metric(val: float, min_val: float, max_val: float, default_val: float = 1.0) -> float:
+    """
+    Safely normalize a numeric value to the [0.0, 1.0] range.
+    Handles zero-range cases (max_val == min_val) safely without division by zero,
+    returning default_val (default 1.0).
+    Guarantees the output is strictly bounded within [0.0, 1.0].
+    """
+    diff = max_val - min_val
+    if diff <= 0 or abs(diff) < 1e-9:
+        return default_val
+    norm = (val - min_val) / diff
+    return max(0.0, min(1.0, float(norm)))
+
+def calculate_destination_score(
+    normalized_demand: float,
+    normalized_value: float,
+    normalized_transit: float,
+    demand_weight: float = WEIGHT_DEMAND_VELOCITY,
+    value_weight: float = WEIGHT_WASTE_AVOIDANCE,
+    transit_weight: float = WEIGHT_TRANSIT_FEASIBILITY,
+) -> float:
+    """
+    Calculate the formalized multi-criteria objective score for ranking
+    already-eligible destination branches.
+
+    Formula:
+        destination_score = (demand_weight * normalized_demand)
+                          + (value_weight * normalized_value)
+                          + (transit_weight * normalized_transit)
+
+    Weights:
+        - demand_weight (default 0.35): Clinical dispensing velocity.
+        - value_weight (default 0.45): Financial waste avoidance & need protection.
+        - transit_weight (default 0.20): Operational transit margin feasibility.
+        Sum = 1.00 (ensuring the resulting score is normalized in [0.0, 1.0]).
+    """
+    score = (
+        demand_weight * normalized_demand
+        + value_weight * normalized_value
+        + transit_weight * normalized_transit
+    )
+    return round(max(0.0, min(1.0, float(score))), 4)
+
 
 def days_to_expiry(expiry_str: Any) -> Optional[int]:
     """Calculate integer days from today until the expiry date.
@@ -409,15 +467,28 @@ def find_destinations(source_row, all_df, transfer_days=DEFAULT_TRANSFER_DAYS):
     if candidates.empty:
         return [], "NO_OTHER_BRANCHES", "No other branches carry this medicine."
 
-    # Safety Rule 3: Exclude zero-demand, zero-capacity, and corrupt numeric branches
+    # Safety Rule 3: Exclude zero-demand, zero-capacity, corrupt numeric, and impossible-transit branches
     valid_dest_rows = []
     for _, dest in candidates.iterrows():
         is_val, clean, _ = validate_batch_numerics(dest)
         if is_val and clean["demand_per_week"] > 0 and clean["branch_capacity_remaining"] > 0:
+            dest_transit = dest.get("transfer_days")
+            if dest_transit is None:
+                dest_transit = dest.get("transit_days", dest.get("transfer_time_days", transfer_days))
+            try:
+                dest_transit_days = float(dest_transit)
+            except (ValueError, TypeError):
+                dest_transit_days = float(transfer_days)
+
+            # Safety Rule 3b: Transit time must not exceed remaining shelf life
+            if dest_transit_days >= dte:
+                continue
+
             d_copy = dest.copy()
             d_copy["quantity"] = clean["quantity"]
             d_copy["demand_per_week"] = clean["demand_per_week"]
             d_copy["branch_capacity_remaining"] = clean["branch_capacity_remaining"]
+            d_copy["dest_transit_days"] = dest_transit_days
             valid_dest_rows.append(d_copy)
 
     if not valid_dest_rows:
@@ -438,29 +509,85 @@ def find_destinations(source_row, all_df, transfer_days=DEFAULT_TRANSFER_DAYS):
             f"Flagged for manual pharmacist review."
         )
 
-    # Score and evaluate all viable candidate branches
+    # Score and evaluate all viable candidate branches using multi-criteria objective function
     scored_all = []
+    unit_cost = float(source_row.get("unit_cost_gbp", 1.0) or 1.0)
+
     for _, dest in viable.iterrows():
         score, comps = calculate_need_score(dest, source_qty)
         need = calculate_destination_need(dest, usable_days=usable_days)
         cap = int(dest.get("branch_capacity_remaining", 0) or 0)
+        dest_stock = float(dest.get("quantity", dest.get("current_stock", 0)) or 0)
+        dest_demand = float(dest.get("demand_per_week", 0) or 0)
+
+        # Criterion 1: Demand Velocity Metric (dispensing velocity in units/week)
+        demand_velocity = dest_demand
+
+        # Criterion 2: Stock Value / Waste Avoidance Metric
+        # Value of stock shortage protected from expiry within the standard 6-week target coverage horizon
+        explicit_val = dest.get("stock_value_protected", dest.get("protected_stock_value"))
+        if explicit_val is not None:
+            try:
+                val_protected = max(0.0, float(explicit_val))
+            except (ValueError, TypeError):
+                val_protected = 0.0
+        else:
+            target_stock = dest_demand * 6.0
+            shortage_units = max(0.0, target_stock - dest_stock)
+            val_protected = round(shortage_units * unit_cost, 2)
+
+        # Criterion 3: Transit Feasibility Metric (shelf-life margin in days remaining after transit)
+        dest_transit_days = float(dest.get("dest_transit_days", transfer_days))
+        transit_margin = max(0.0, float(dte - dest_transit_days))
+
         scored_all.append({
             "dest": dest,
             "need_score": score,
             "components": comps,
             "need": need,
             "cap": cap,
+            "demand_velocity": demand_velocity,
+            "val_protected": val_protected,
+            "transit_margin": transit_margin,
+            "dest_transit_days": dest_transit_days,
             "can_absorb_full": (cap >= source_qty and need >= source_qty),
         })
 
+    # Normalize criteria across viable candidates (safe against zero-range / single candidate)
+    min_dem = min(c["demand_velocity"] for c in scored_all)
+    max_dem = max(c["demand_velocity"] for c in scored_all)
+
+    min_val = min(c["val_protected"] for c in scored_all)
+    max_val = max(c["val_protected"] for c in scored_all)
+
+    min_transit = min(c["transit_margin"] for c in scored_all)
+    max_transit = max(c["transit_margin"] for c in scored_all)
+
+    for c in scored_all:
+        norm_dem = normalize_metric(c["demand_velocity"], min_dem, max_dem, default_val=1.0)
+        norm_val = normalize_metric(c["val_protected"], min_val, max_val, default_val=1.0)
+        norm_transit = normalize_metric(c["transit_margin"], min_transit, max_transit, default_val=1.0)
+
+        dest_score = calculate_destination_score(norm_dem, norm_val, norm_transit)
+
+        c["normalized_demand_score"] = norm_dem
+        c["normalized_value_score"] = norm_val
+        c["normalized_transit_score"] = norm_transit
+        c["demand_velocity_score"] = norm_dem
+        c["stock_value_score"] = norm_val
+        c["transit_feasibility_score"] = norm_transit
+        c["destination_score"] = dest_score
+
     # Sort deterministically by:
-    # 1. Highest need score
-    # 2. Lowest weeks of cover
-    # 3. Highest weekly demand
-    # 4. Branch ID (string tie-breaker)
+    # 1. Highest destination_score (multi-criteria objective function)
+    # 2. Highest need_score (secondary explainability score)
+    # 3. Lowest weeks of cover (faster absorption)
+    # 4. Highest weekly demand
+    # 5. Branch ID (deterministic string tie-breaker)
     scored_all.sort(
         key=lambda item: (
-            -item["need_score"],
+            -round(item["destination_score"], 6),
+            -round(item["need_score"], 4),
             item["components"]["weeks_of_cover"],
             -item["components"]["dest_demand_per_week"],
             str(item["dest"]["branch_id"]),
@@ -468,7 +595,8 @@ def find_destinations(source_row, all_df, transfer_days=DEFAULT_TRANSFER_DAYS):
     )
 
     # If branches exist that can accommodate the entire batch alone (both capacity >= source_qty
-    # and destination need >= source_qty), prioritize them at the front of candidates.
+    # and destination need >= source_qty), prioritize them at the front of candidates,
+    # ranked internally by the multi-criteria objective score.
     full_candidates = [c for c in scored_all if c["can_absorb_full"]]
     other_candidates = [c for c in scored_all if not c["can_absorb_full"]]
     top_candidates = (full_candidates + other_candidates)[:3]
@@ -542,30 +670,38 @@ def find_destinations(source_row, all_df, transfer_days=DEFAULT_TRANSFER_DAYS):
             f"The medicine is approaching expiry ({dte} days left, risk score: {source_score}), "
             f"the source branch ({source_row['branch_name']}) has excess stock ({source_qty} units, "
             f"worth £{source_val:.2f}, demand: {source_dem} units/wk), and the destination branch ({dest['branch_name']}) "
-            f"has high need (need score: {score:.1f}, current stock: {int(dest['quantity'])} units with only {current_woc} wks cover, "
+            f"has high need (need score: {score:.1f}, destination score: {cand['destination_score']:.2f}, "
+            f"current stock: {int(dest['quantity'])} units with only {current_woc} wks cover, "
             f"demand: {int(dest['demand_per_week'])} units/wk, recommended transfer: {transfer_qty} units) "
             f"and sufficient available capacity ({int(dest['branch_capacity_remaining'])} units remaining). "
-            f"(~{transfer_days}d transit, current cover {current_woc} wks, ~{absorption_pct}% expected absorption)."
+            f"(~{cand['dest_transit_days']:.0f}d transit, current cover {current_woc} wks, ~{absorption_pct}% expected absorption)."
         )
 
         confidence = "HIGH" if dest["demand_per_week"] >= 20 else "MEDIUM"
 
         results.append({
-            "dest_branch_id":       dest["branch_id"],
-            "dest_branch_name":     dest["branch_name"],
-            "dest_demand_per_week": int(dest["demand_per_week"]),
-            "dest_capacity":        int(dest["branch_capacity_remaining"]),
-            "dest_current_stock":   int(dest["quantity"]),
-            "dest_weeks_of_cover":  float(current_woc),
-            "dest_need_score":      float(score),
-            "need_score":           float(score),
-            "need_score_components": comps,
-            "absorption_pct":       absorption_pct,
-            "transfer_quantity":    int(transfer_qty),
-            "allocated_quantity":   int(transfer_qty),
-            "dest_need":            int(dest_need),
-            "reason":               reason,
-            "confidence":           confidence,
+            "dest_branch_id":            dest["branch_id"],
+            "dest_branch_name":          dest["branch_name"],
+            "dest_demand_per_week":      int(dest["demand_per_week"]),
+            "dest_capacity":             int(dest["branch_capacity_remaining"]),
+            "dest_current_stock":        int(dest["quantity"]),
+            "dest_weeks_of_cover":       float(current_woc),
+            "dest_need_score":           float(score),
+            "need_score":                float(score),
+            "destination_score":         float(cand["destination_score"]),
+            "normalized_demand_score":   float(cand["normalized_demand_score"]),
+            "normalized_value_score":    float(cand["normalized_value_score"]),
+            "normalized_transit_score":  float(cand["normalized_transit_score"]),
+            "demand_velocity_score":     float(cand["demand_velocity_score"]),
+            "stock_value_score":         float(cand["stock_value_score"]),
+            "transit_feasibility_score": float(cand["transit_feasibility_score"]),
+            "need_score_components":     comps,
+            "absorption_pct":            absorption_pct,
+            "transfer_quantity":         int(transfer_qty),
+            "allocated_quantity":        int(transfer_qty),
+            "dest_need":                 int(dest_need),
+            "reason":                    reason,
+            "confidence":                confidence,
         })
 
     return results, "OK", ""
@@ -861,6 +997,13 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
                 "destination_weeks_of_cover": best.get("dest_weeks_of_cover"),
                 "destination_need_score":     best.get("dest_need_score"),
                 "destination_need_components": best.get("need_score_components"),
+                "destination_score":          best.get("destination_score"),
+                "normalized_demand_score":    best.get("normalized_demand_score"),
+                "normalized_value_score":     best.get("normalized_value_score"),
+                "normalized_transit_score":   best.get("normalized_transit_score"),
+                "demand_velocity_score":      best.get("demand_velocity_score"),
+                "stock_value_score":          best.get("stock_value_score"),
+                "transit_feasibility_score":  best.get("transit_feasibility_score"),
                 "transfer_time_days": transfer_days,
                 "medicine_value_gbp": float(row["stock_value"]),
                 "risk_score":         float(row["score"]),
@@ -948,6 +1091,13 @@ def generate_recommendations(df, transfer_days=DEFAULT_TRANSFER_DAYS, all_df=Non
                 "destination_need_score":     best.get("dest_need_score"),
                 "dest_need_score":            best.get("dest_need_score"),
                 "need_score":                 best.get("dest_need_score"),
+                "destination_score":          best.get("destination_score"),
+                "normalized_demand_score":    best.get("normalized_demand_score"),
+                "normalized_value_score":     best.get("normalized_value_score"),
+                "normalized_transit_score":   best.get("normalized_transit_score"),
+                "demand_velocity_score":      best.get("demand_velocity_score"),
+                "stock_value_score":          best.get("stock_value_score"),
+                "transit_feasibility_score":  best.get("transit_feasibility_score"),
                 "suggested_quantity":    int(row["quantity"]),
                 "risk_urgency":          row["urgency"],
                 "score":                 float(row["score"]),
