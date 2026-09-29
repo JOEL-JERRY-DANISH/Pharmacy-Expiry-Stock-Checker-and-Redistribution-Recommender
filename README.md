@@ -28,21 +28,21 @@ The system is designed around a **human-in-the-loop** model: the software recomm
 
 ## 🎯 Objectives
 
-| Objective                            | Implementation                                   |
+| Objective | Implementation |
 | ------------------------------------ | ------------------------------------------------ |
-| Identify expiry risk                 | Explainable 0–150 risk score                     |
-| Detect redistribution opportunities  | Safety-first destination eligibility             |
-| Formalize destination ranking        | Normalized multi-criteria objective              |
-| Balance inventory value and demand   | Demand, protected value, and transit criteria    |
-| Prevent unsafe transfers             | Capacity, demand, stock, and transit constraints |
-| Support limited destination capacity | Split redistribution                             |
-| Capture pharmacist decisions         | SQLite audit log                                 |
-| Explain overrides/rejections         | Structured reason-code taxonomy                  |
-| Protect authentication data          | PBKDF2-HMAC-SHA256 password hashing              |
-| Support barcode workflows            | Lookup, update, and validation                   |
-| Provide ML assistance                | Expiry-risk classification advisory              |
-| Verify reliability                   | Automated Pytest regression suite                |
-| Provide reproducible test data       | Deterministic synthetic dataset                  |
+| Identify expiry risk | Explainable 0–150 risk score |
+| Detect redistribution opportunities | Safety-first destination eligibility |
+| Formalize destination ranking | Normalized multi-criteria objective |
+| Balance inventory value and demand | Demand, protected value, and transit criteria |
+| Prevent unsafe transfers | Capacity, demand, stock, and transit constraints |
+| Support limited destination capacity | Split redistribution |
+| Capture pharmacist decisions | SQLite audit log |
+| Explain overrides/rejections | Structured reason-code taxonomy |
+| Protect authentication data | PBKDF2-HMAC-SHA256 password hashing |
+| Support barcode workflows | Lookup, update, and validation |
+| Provide ML assistance | Expiry-risk classification advisory |
+| Verify reliability | Automated Pytest regression suite |
+| Provide reproducible test data | Deterministic synthetic dataset |
 
 ---
 
@@ -89,25 +89,22 @@ The redistribution recommender uses a normalized objective instead of relying on
 For every viable destination, the system evaluates:
 
 1. **Demand velocity**
-
    * Destination weekly demand.
 
 2. **Stock value protected**
-
    * Estimated inventory value that can be protected from expiry/waste.
    * When explicit protected value is unavailable, the system estimates shortage against a demand-based target stock level.
 
 3. **Transit feasibility**
-
    * Remaining shelf-life margin after accounting for transit time.
 
 The criteria are normalized across viable destinations and combined using:
 
-| Criterion             |   Weight |
+| Criterion | Weight |
 | --------------------- | -------: |
-| Demand                | **0.35** |
+| Demand | **0.35** |
 | Protected Stock Value | **0.45** |
-| Transit Feasibility   | **0.20** |
+| Transit Feasibility | **0.20** |
 
 The resulting destination score is:
 
@@ -181,14 +178,14 @@ For overrides and rejections, the system records a structured reason code.
 
 ### Override / Rejection Reason Codes
 
-| Code                      | Meaning                                                 |
+| Code | Meaning |
 | ------------------------- | ------------------------------------------------------- |
-| `LOCAL_STOCK_BUFFER`      | Local stock must be retained as a safety buffer         |
-| `STORAGE_UNAVAILABLE`     | Destination storage conditions/capacity are unavailable |
-| `REVISED_CLINICAL_DEMAND` | Expected demand has changed                             |
-| `COLD_CHAIN_MAINTENANCE`  | Cold-chain requirements prevent the transfer            |
-| `TRANSIT_RISK`            | Transit conditions introduce unacceptable risk          |
-| `OTHER`                   | Another documented reason                               |
+| `LOCAL_STOCK_BUFFER` | Local stock must be retained as a safety buffer |
+| `STORAGE_UNAVAILABLE` | Destination storage conditions/capacity are unavailable |
+| `REVISED_CLINICAL_DEMAND` | Expected demand has changed |
+| `COLD_CHAIN_MAINTENANCE` | Cold-chain requirements prevent the transfer |
+| `TRANSIT_RISK` | Transit conditions introduce unacceptable risk |
+| `OTHER` | Another documented reason |
 
 When `OTHER` is selected, additional justification is required.
 
@@ -298,13 +295,13 @@ The system presents the resulting urgency level to the pharmacist rather than tr
 
 ### Risk Categories
 
-| Condition  | Category    |
+| Condition | Category |
 | ---------- | ----------- |
-| Expired    | Expired     |
-| 0–7 days   | Critical    |
-| 8–30 days  | Near Expiry |
-| 31–90 days | Watch       |
-| >90 days   | Safe        |
+| Expired | Expired |
+| 0–7 days | Critical |
+| 8–30 days | Near Expiry |
+| 31–90 days | Watch |
+| >90 days | Safe |
 
 ---
 
@@ -489,23 +486,23 @@ The synthetic dataset contains:
 
 ### Holdout Evaluation
 
-| Metric             |     Result |
+| Metric | Result |
 | ------------------ | ---------: |
-| Weighted Accuracy  | **0.9133** |
+| Weighted Accuracy | **0.9133** |
 | Weighted Precision | **0.9086** |
-| Macro Precision    | **0.8598** |
-| Weighted Recall    | **0.9133** |
-| Macro Recall       | **0.7513** |
-| Weighted F1        | **0.9052** |
-| Macro F1           | **0.7779** |
+| Macro Precision | **0.8598** |
+| Weighted Recall | **0.9133** |
+| Macro Recall | **0.7513** |
+| Weighted F1 | **0.9052** |
+| Macro F1 | **0.7779** |
 
 ### Per-Class Results
 
-| Class  | Precision | Recall |    F1 | Support |
+| Class | Precision | Recall | F1 | Support |
 | ------ | --------: | -----: | ----: | ------: |
-| High   |     0.898 |  1.000 | 0.946 |      53 |
-| Low    |     0.931 |  0.920 | 0.926 |      88 |
-| Medium |     0.750 |  0.333 | 0.462 |       9 |
+| High | 0.898 | 1.000 | 0.946 | 53 |
+| Low | 0.931 | 0.920 | 0.926 | 88 |
+| Medium | 0.750 | 0.333 | 0.462 | 9 |
 
 The relatively small Medium-class support should be considered when interpreting the class-specific metrics.
 
@@ -513,11 +510,11 @@ The relatively small Medium-class support should be considered when interpreting
 
 | Fold | Accuracy |
 | ---- | -------: |
-| 1    |   0.9583 |
-| 2    |   0.9750 |
-| 3    |   0.9667 |
-| 4    |   0.9333 |
-| 5    |   0.9500 |
+| 1 | 0.9583 |
+| 2 | 0.9750 |
+| 3 | 0.9667 |
+| 4 | 0.9333 |
+| 5 | 0.9500 |
 
 Summary:
 
@@ -542,7 +539,6 @@ The dataset contains approximately:
 * Batch quantities between **5 and 500 units**
 * Unit costs between **£0.08 and £3.50**
 * Approximately:
-
   * 5% expired
   * 15% critical
   * 20% near expiry
@@ -605,17 +601,17 @@ Expected result:
 
 ## 🛠️ Technology Stack
 
-| Technology   | Purpose                 |
+| Technology | Purpose |
 | ------------ | ----------------------- |
-| Python       | Core application        |
-| Streamlit    | Web interface           |
-| SQLite       | Persistent data storage |
-| Pytest       | Automated testing       |
-| Pandas       | Data processing         |
-| Scikit-learn | Machine learning        |
-| NumPy        | Numerical processing    |
-| Plotly       | Data visualization      |
-| Git/GitHub   | Version control         |
+| Python | Core application |
+| Streamlit | Web interface |
+| SQLite | Persistent data storage |
+| Pytest | Automated testing |
+| Pandas | Data processing |
+| Scikit-learn | Machine learning |
+| NumPy | Numerical processing |
+| Plotly | Data visualization |
+| Git/GitHub | Version control |
 
 ---
 
@@ -625,19 +621,20 @@ Expected result:
 Pharmacy-Expiry-Stock-Checker-and-Redistribution-Recommender/
 │
 ├── app.py
-│
 ├── constants.py
 ├── database.py
 ├── recommender.py
 ├── log_manager.py
+├── barcode_lookup.py
+├── barcode_registry.py
+├── auth_config.py
 ├── ui_theme.py
 ├── generate_data.py
 │
 ├── pages/
 │   └── admin_dashboard.py
 │
-├── tests/
-│   └── test_edge_cases.py
+├── test_edge_cases.py
 │
 ├── data/
 │   └── synthetic datasets / generated data
@@ -673,7 +670,7 @@ Windows:
 
 ```bash
 python -m venv venv
-venv\Scripts\activate
+venv\\Scripts\\activate
 ```
 
 Linux/macOS:
@@ -746,6 +743,14 @@ It supports information such as:
 * Export functionality.
 
 This helps make the system's recommendation history inspectable and auditable.
+
+Risk thresholds shown in the dashboard should align with the recommender:
+
+* **Critical:** 0–7 days
+* **Near Expiry:** 8–30 days
+* **Watch:** 31–90 days
+* **Safe:** more than 90 days
+* **Expired:** fewer than 0 days
 
 ---
 
@@ -965,12 +970,6 @@ The project is intended to demonstrate how software can assist pharmacy inventor
 
 ---
 
-## 📄 License
-
-Add the project's applicable license here if one is required by your institution or repository policy.
-
----
-
 ## 🔗 Repository
 
-[GitHub Repository](https://github.com/JOEL-JERRY-DANISH/Pharmacy-Expiry-Stock-Checker-and-Redistribution-Recommender?utm_source=chatgpt.com)
+[GitHub Repository](https://github.com/JOEL-JERRY-DANISH/Pharmacy-Expiry-Stock-Checker-and-Redistribution-Recommender)
