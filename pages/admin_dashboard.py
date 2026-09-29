@@ -259,7 +259,7 @@ if not df_decisions.empty:
         render_section_header("Override Reasons", "Clinical justifications logged by pharmacists when overriding recommendations", icon="📝", badge_text=f"{len(overrides)} Overrides")
         cols = [c for c in [
             "timestamp", "user", "medicine", "batch_id",
-            "source_branch", "destination", "quantity", "override_reason"
+            "source_branch", "destination", "quantity", "reason_code", "override_reason"
         ] if c in overrides.columns]
         renamed_override_cols = {
             "timestamp": "Timestamp",
@@ -269,10 +269,21 @@ if not df_decisions.empty:
             "source_branch": "Source Branch",
             "destination": "Destination",
             "quantity": "Quantity",
+            "reason_code": "Reason Code",
             "override_reason": "Clinical Justification",
         }
+        filtered_overrides = overrides
+        if "reason_code" in overrides.columns:
+            codes = sorted([c for c in overrides["reason_code"].dropna().unique() if c])
+            if len(codes) > 1:
+                filter_col, _ = st.columns([1, 2])
+                with filter_col:
+                    selected_code = st.selectbox("Filter by Reason Code", ["All Reason Codes"] + codes, key="admin_filter_reason_code")
+                    if selected_code != "All Reason Codes":
+                        filtered_overrides = overrides[overrides["reason_code"] == selected_code]
+
         st.dataframe(
-            overrides[cols].rename(columns={k: v for k, v in renamed_override_cols.items() if k in cols}),
+            filtered_overrides[cols].rename(columns={k: v for k, v in renamed_override_cols.items() if k in cols}),
             use_container_width=True,
             hide_index=True,
         )

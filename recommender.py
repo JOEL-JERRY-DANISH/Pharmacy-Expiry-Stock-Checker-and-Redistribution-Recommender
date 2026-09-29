@@ -594,12 +594,9 @@ def find_destinations(source_row, all_df, transfer_days=DEFAULT_TRANSFER_DAYS):
         )
     )
 
-    # If branches exist that can accommodate the entire batch alone (both capacity >= source_qty
-    # and destination need >= source_qty), prioritize them at the front of candidates,
-    # ranked internally by the multi-criteria objective score.
-    full_candidates = [c for c in scored_all if c["can_absorb_full"]]
-    other_candidates = [c for c in scored_all if not c["can_absorb_full"]]
-    top_candidates = (full_candidates + other_candidates)[:3]
+    # Every viable destination is ranked primarily by the multi-criteria objective score.
+    # Full-batch absorption does NOT override a higher objective score.
+    top_candidates = scored_all[:3]
 
     # Calculate recommended transfer quantity for each destination:
     # Constraints:

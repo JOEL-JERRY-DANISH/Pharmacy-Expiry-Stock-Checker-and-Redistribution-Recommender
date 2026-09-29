@@ -129,6 +129,8 @@ from database import (
     save_decision,
     update_stock_quantity,
     DatabaseSaveError,
+    validate_override,
+    OVERRIDE_REASON_CODES,
 )
 initialise_database()
 
@@ -139,7 +141,8 @@ DECISION_SAVE_ERROR_MESSAGE = (
 
 def dual_save(batch_id, medicine, action,
               destination="", override_reason="", user="",
-              source_branch="", quantity=0, system_recommendation=""):
+              source_branch="", quantity=0, system_recommendation="",
+              reason_code=""):
     """Record an operational decision in SQLite (the sole authoritative audit log)."""
     ok = save_decision(
         batch_id=batch_id,
@@ -152,13 +155,14 @@ def dual_save(batch_id, medicine, action,
         quantity=quantity,
         system_recommendation=system_recommendation,
         final_decision=action,
+        reason_code=reason_code,
     )
     if ok:
         invalidate_stock_cache()
     return bool(ok)
 
 def record_recommendation_action(rec, action, user_name, destination="",
-                                 override_reason="", is_split=False,
+                                 override_reason="", reason_code="", is_split=False,
                                  split_dests=None) -> bool:
     """
     Centralize recording of operational decisions (single or split transfers,
@@ -206,6 +210,7 @@ def record_recommendation_action(rec, action, user_name, destination="",
             source_branch=source_branch,
             quantity=rec.get("quantity", 0),
             system_recommendation=sys_rec,
+            reason_code=reason_code,
         )
 
 def load_data(force_reload=False):
@@ -898,31 +903,39 @@ for i, rec in enumerate(displayed_recs):
                     else:
                         st.error(DECISION_SAVE_ERROR_MESSAGE)
             with reason_col:
+                reason_cat = st.selectbox(
+                    "Reason Category (required) *",
+                    options=[""] + list(OVERRIDE_REASON_CODES.keys()),
+                    format_func=lambda c: f"{OVERRIDE_REASON_CODES[c]} ({c})" if c else "-- Select reason category * --",
+                    key=f"reason_cat_{i}",
+                    help="Select a standardized machine-readable reason code."
+                )
                 reason_text = st.text_input(
-                    "Override Reason (clinical justification required to reject) *",
+                    "Clinical Justification (required) *",
                     key=f"reason_{i}",
-                    placeholder="e.g. Branch already ordered local stock, or clinical preference",
+                    placeholder="e.g. Destination refrigerator is under maintenance",
                     help="Mandatory clinical justification recorded into the audit trail."
                 )
                 if st.button("↩️ Override / Reject",
                              key=f"override_{i}"):
-                    if reason_text.strip():
+                    if not reason_cat:
+                        st.error("⚠️ Reason Category Required: Please select a reason category before overriding this recommendation.")
+                    elif not reason_text.strip():
+                        st.error("⚠️ Justification Required: Please type a clinical reason before overriding this recommendation.")
+                    else:
                         saved = record_recommendation_action(
                             rec=rec,
                             action="OVERRIDDEN",
                             user_name=st.session_state.current_user["name"],
                             destination=dest_display,
-                            override_reason=reason_text,
+                            override_reason=reason_text.strip(),
+                            reason_code=reason_cat,
                         )
                         if saved:
                             st.session_state.overridden.add(uid)
                             st.rerun()
                         else:
                             st.error(DECISION_SAVE_ERROR_MESSAGE)
-                    else:
-                        st.error(
-                            "⚠️ Justification Required: Please type a clinical reason before overriding this recommendation."
-                        )
         else:
             btn_col, reason_col = st.columns([1, 1.8])
             with btn_col:
@@ -945,28 +958,38 @@ for i, rec in enumerate(displayed_recs):
                         st.error(DECISION_SAVE_ERROR_MESSAGE)
             with reason_col:
                 with st.expander("↩️ Reject / Override this Recommendation"):
+                    std_reason_cat = st.selectbox(
+                        "Reason Category (required) *",
+                        options=[""] + list(OVERRIDE_REASON_CODES.keys()),
+                        format_func=lambda c: f"{OVERRIDE_REASON_CODES[c]} ({c})" if c else "-- Select reason category * --",
+                        key=f"std_reason_cat_{i}",
+                        help="Select a standardized machine-readable reason code."
+                    )
                     std_reason_text = st.text_input(
-                        "Override Reason (clinical justification required) *",
+                        "Clinical Justification (required) *",
                         key=f"std_reason_{i}",
-                        placeholder="e.g. Local dispensary stock buffer needed",
+                        placeholder="e.g. Destination refrigerator is under maintenance",
                         help="Enter clinical justification to override this automated recommendation."
                     )
                     if st.button("Confirm Clinical Override", key=f"std_override_{i}"):
-                        if std_reason_text.strip():
+                        if not std_reason_cat:
+                            st.error("⚠️ Reason Category Required: Please select a reason category before overriding this recommendation.")
+                        elif not std_reason_text.strip():
+                            st.error("⚠️ Justification Required: Please type a clinical reason before overriding this recommendation.")
+                        else:
                             saved = record_recommendation_action(
                                 rec=rec,
                                 action="OVERRIDDEN",
                                 user_name=st.session_state.current_user["name"],
                                 destination=dest_display,
-                                override_reason=std_reason_text,
+                                override_reason=std_reason_text.strip(),
+                                reason_code=std_reason_cat,
                             )
                             if saved:
                                 st.session_state.overridden.add(uid)
                                 st.rerun()
                             else:
                                 st.error(DECISION_SAVE_ERROR_MESSAGE)
-                        else:
-                            st.error("⚠️ Justification Required: Please type a clinical reason before overriding this recommendation.")
 
     elif rec["action"] == "FLAG_FOR_REVIEW":
         st.warning(

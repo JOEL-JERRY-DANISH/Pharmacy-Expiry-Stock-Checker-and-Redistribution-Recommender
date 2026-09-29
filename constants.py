@@ -38,7 +38,19 @@ DECISION_COLUMNS: list[str] = [
     "action",
     "final_decision",
     "override_reason",
+    "reason_code",
 ]
+
+# ── Controlled Reason Codes for Pharmacist Overrides / Rejections ─────────────
+OVERRIDE_REASON_CODES: dict[str, str] = {
+    "LOCAL_STOCK_BUFFER": "Local stock buffer needed",
+    "STORAGE_UNAVAILABLE": "Storage capacity unavailable / constrained",
+    "REVISED_CLINICAL_DEMAND": "Revised clinical demand / local acute need",
+    "COLD_CHAIN_MAINTENANCE": "Cold chain / refrigeration maintenance",
+    "TRANSIT_RISK": "Transit delay or transport constraint",
+    "OTHER": "Other clinical / operational reason",
+}
+VALID_REASON_CODES: set[str] = set(OVERRIDE_REASON_CODES.keys())
 
 # ── Recommender thresholds ───────────────────────────────────────────────────
 #: Batches with fewer than this many units are ignored by the recommender.

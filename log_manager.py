@@ -61,6 +61,7 @@ def save_entry(
     quantity: int = 0,
     system_recommendation: str = "",
     final_decision: str = "",
+    reason_code: str = "",
 ) -> pd.DataFrame:
     """
     Save a decision.
@@ -83,6 +84,8 @@ def save_entry(
     else:
         final_decision = str(final_decision).strip().upper()
 
+    std_reason_code = str(reason_code).strip().upper() if reason_code else ""
+
     try:
         qty_int = int(float(quantity))
     except (ValueError, TypeError):
@@ -100,6 +103,7 @@ def save_entry(
         "action":                std_action,
         "final_decision":        final_decision,
         "override_reason":       override_reason,
+        "reason_code":           std_reason_code,
     }
 
     # ── Standard operational path ────────────────────────────────────────────
@@ -112,6 +116,7 @@ def save_entry(
                 user=user, source_branch=source_branch,
                 quantity=qty_int, system_recommendation=system_recommendation,
                 final_decision=final_decision,
+                reason_code=std_reason_code,
                 # csv_path intentionally omitted — SQLite only
             )
             if not ok:

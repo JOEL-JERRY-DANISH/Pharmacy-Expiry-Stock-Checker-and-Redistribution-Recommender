@@ -1,7 +1,7 @@
 import unittest
 import pandas as pd
 import hashlib
-import tempfile, os
+import tempfile, os, shutil, sqlite3
 from datetime import datetime, timedelta
 from recommender import (
     generate_recommendations,
@@ -35,6 +35,10 @@ from database import (
     import_from_csv,
     validate_stock_row,
     REQUIRED_STOCK_COLUMNS,
+    validate_override,
+    OVERRIDE_REASON_CODES,
+    export_decisions_to_csv,
+    get_last_decision_save_error,
 )
 
 def make_row(dte, qty, demand, capacity,
@@ -1728,8 +1732,8 @@ class TestDestinationSelection(unittest.TestCase):
         """Branches lacking sufficient remaining capacity are safely excluded even if shortage is severe."""
         source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
 
-        # Branch C has urgent stock need (stock 0, demand 50) but only 50 units capacity (< 100 required)
-        dest_c_no_cap = make_row(100, 0, 50, 50, branch_id="BR_NO_CAP", branch_name="Full Branch")
+        # Branch C has urgent stock need (stock 0, demand 50) but 0 units capacity (full branch)
+        dest_c_no_cap = make_row(100, 0, 50, 0, branch_id="BR_NO_CAP", branch_name="Full Branch")
 
         # Branch D has moderate demand (45/wk) and ample capacity (500 units >= 100)
         dest_d_viable = make_row(100, 5, 45, 500, branch_id="BR_VIABLE", branch_name="Viable Branch")
@@ -5166,3 +5170,260 @@ class TestMultiCriteriaDestinationRanking(unittest.TestCase):
         self.assertEqual(dests[0]["transfer_quantity"], 60)
         self.assertEqual(dests[1]["transfer_quantity"], 40)
         self.assertEqual(sum(d["transfer_quantity"] for d in dests), 100)
+
+    def test_13_higher_objective_score_ranks_above_lower_score_full_absorption_destination(self):
+        """Full-batch absorption capability must NOT override a candidate with a higher objective score."""
+        source = make_row(25, 100, 20, 500, branch_id="BR_SRC", branch_name="Source Branch")
+
+        # Candidate Partial has high demand velocity (50/wk), severe shortage (0 stock), but limited capacity (60 < 100)
+        cand_partial = make_row(100, 0, 50, 60, branch_id="BR_HIGH_SCORE", branch_name="High Need Partial")
+
+        # Candidate Full has lower demand velocity (20/wk), moderate stock (20), but ample capacity (500 >= 100)
+        cand_full = make_row(100, 20, 20, 500, branch_id="BR_FULL_ABSORB", branch_name="Low Need Full")
+
+        df = pd.DataFrame([source, cand_partial, cand_full])
+        dests, status, _ = find_destinations(source, df)
+
+        self.assertEqual(status, "OK")
+        self.assertEqual(len(dests), 2)
+
+        # Higher objective score must rank strictly first
+        self.assertGreater(dests[0]["destination_score"], dests[1]["destination_score"])
+        self.assertEqual(dests[0]["dest_branch_id"], "BR_HIGH_SCORE")
+        self.assertEqual(dests[1]["dest_branch_id"], "BR_FULL_ABSORB")
+
+        # Split transfer allocates to highest score first up to its capacity, then remainder to second
+        self.assertEqual(dests[0]["transfer_quantity"], 60)
+        self.assertEqual(dests[1]["transfer_quantity"], 40)
+
+        # End-to-end recommendation preserves ranking and transparent split
+        recs = generate_recommendations(df)
+        self.assertEqual(len(recs), 1)
+        self.assertTrue(recs[0]["is_split"])
+        self.assertEqual(recs[0]["destinations"][0]["dest_branch_id"], "BR_HIGH_SCORE")
+        self.assertEqual(recs[0]["destinations"][1]["dest_branch_id"], "BR_FULL_ABSORB")
+
+
+class TestPharmacistOverrideReasonCodes(unittest.TestCase):
+    """Regression test suite for Fix #8: Machine-readable reason codes for pharmacist overrides."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.temp_dir, "test_reasons.db")
+        self.csv_path = os.path.join(self.temp_dir, "test_decisions.csv")
+        # seed=False prevents the operational data/decision_log.csv from being seeded
+        # into the isolated temp database, keeping it clean for per-test assertions.
+        initialise_database(self.db_path, seed=False)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_01_valid_reason_code_is_persisted(self):
+        """A valid reason code from OVERRIDE_REASON_CODES is saved and persisted in SQLite."""
+        ok = save_decision(
+            batch_id="BATCH-VR-01",
+            medicine="Amoxicillin 500mg",
+            action="OVERRIDDEN",
+            destination="Branch Beta",
+            override_reason="Destination refrigerator undergoing periodic maintenance",
+            user="pharmacist1",
+            source_branch="Branch Alpha",
+            quantity=50,
+            system_recommendation="TRANSFER",
+            db_path=self.db_path,
+            reason_code="COLD_CHAIN_MAINTENANCE",
+        )
+        self.assertTrue(ok)
+
+        df = load_decisions(db_path=self.db_path)
+        matching = df[df["batch_id"] == "BATCH-VR-01"]
+        self.assertEqual(len(matching), 1)
+        row = matching.iloc[0]
+        self.assertEqual(row["action"], "OVERRIDDEN")
+        self.assertEqual(row["reason_code"], "COLD_CHAIN_MAINTENANCE")
+        self.assertEqual(row["override_reason"], "Destination refrigerator undergoing periodic maintenance")
+
+    def test_02_invalid_reason_code_is_rejected(self):
+        """An invalid/unknown reason code is rejected and save_decision returns False."""
+        ok = save_decision(
+            batch_id="BATCH-IR-01",
+            medicine="Amoxicillin 500mg",
+            action="OVERRIDDEN",
+            destination="Branch Beta",
+            override_reason="Arbitrary category reason",
+            user="pharmacist1",
+            source_branch="Branch Alpha",
+            quantity=50,
+            system_recommendation="TRANSFER",
+            db_path=self.db_path,
+            reason_code="UNKNOWN_REASON_XYZ",
+        )
+        self.assertFalse(ok)
+        self.assertIn("Invalid reason_code", str(get_last_decision_save_error()))
+
+        df = load_decisions(db_path=self.db_path)
+        matching = df[df["batch_id"] == "BATCH-IR-01"]
+        self.assertEqual(len(matching), 0, "Rejected decision must not be saved to the database")
+
+    def test_03_reason_code_and_free_text_justification_both_retained(self):
+        """Both categorical reason code and detailed free-text clinical justification are retained."""
+        codes = ["LOCAL_STOCK_BUFFER", "STORAGE_UNAVAILABLE", "TRANSIT_RISK"]
+        for code in codes:
+            ok = save_decision(
+                batch_id=f"BATCH-DUAL-{code}",
+                medicine="Paracetamol",
+                action="OVERRIDDEN",
+                destination="Branch Gamma",
+                override_reason=f"Clinical rationale for {code}",
+                user="pharmacist2",
+                source_branch="Branch Alpha",
+                quantity=100,
+                system_recommendation="TRANSFER",
+                db_path=self.db_path,
+                reason_code=code,
+            )
+            self.assertTrue(ok)
+
+        df = load_decisions(db_path=self.db_path)
+        for code in codes:
+            matching = df[df["reason_code"] == code]
+            self.assertEqual(len(matching), 1)
+            self.assertEqual(matching.iloc[0]["override_reason"], f"Clinical rationale for {code}")
+
+    def test_04_rejection_override_requires_reason_code(self):
+        """Rejection/override validation strictly requires a categorical reason code and clinical text."""
+        # Empty reason code must fail validation
+        valid, err = validate_override(reason_code="", override_reason="Local buffer needed")
+        self.assertFalse(valid)
+        self.assertIn("reason code is required", err.lower())
+
+        # Invalid reason code must fail validation
+        valid, err = validate_override(reason_code="INVALID_CODE", override_reason="Local buffer needed")
+        self.assertFalse(valid)
+        self.assertIn("invalid reason code", err.lower())
+
+        # Empty justification must fail validation
+        valid, err = validate_override(reason_code="LOCAL_STOCK_BUFFER", override_reason="")
+        self.assertFalse(valid)
+        self.assertIn("justification is required", err.lower())
+
+        # Both present and valid must pass validation
+        valid, err = validate_override(reason_code="LOCAL_STOCK_BUFFER", override_reason="Local clinic holds buffer")
+        self.assertTrue(valid)
+        self.assertEqual(err, "")
+
+    def test_05_existing_audit_records_remain_readable_after_schema_migration(self):
+        """Existing legacy database records without reason_code column migrate safely and remain readable."""
+        legacy_db = os.path.join(self.temp_dir, "legacy_audit.db")
+        conn = sqlite3.connect(legacy_db)
+        # Create table with legacy schema (without reason_code column)
+        conn.execute("""
+            CREATE TABLE decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                user TEXT,
+                medicine TEXT,
+                batch_id TEXT,
+                source_branch TEXT,
+                destination TEXT,
+                quantity INTEGER,
+                system_recommendation TEXT,
+                action TEXT,
+                final_decision TEXT,
+                override_reason TEXT
+            )
+        """)
+        conn.execute("""
+            INSERT INTO decisions
+            (timestamp, user, medicine, batch_id, source_branch, destination, quantity, system_recommendation, action, final_decision, override_reason)
+            VALUES ('2026-01-01 10:00:00', 'legacy_user', 'Aspirin', 'BATCH-LEG-1', 'Branch A', 'Branch B', 20, 'TRANSFER', 'OVERRIDDEN', 'OVERRIDDEN', 'Legacy reason without code')
+        """)
+        conn.commit()
+        conn.close()
+
+        # Run initialise_database to trigger safe migration
+        initialise_database(legacy_db, seed=False)
+
+        # Verify old record is preserved and has empty reason_code
+        df_old = load_decisions(db_path=legacy_db)
+        matching_leg = df_old[df_old["batch_id"] == "BATCH-LEG-1"]
+        self.assertEqual(len(matching_leg), 1)
+        self.assertEqual(matching_leg.iloc[0]["override_reason"], "Legacy reason without code")
+        self.assertEqual(matching_leg.iloc[0]["reason_code"], "")
+
+        # Verify new record with reason_code can be saved into migrated database
+        ok = save_decision(
+            batch_id="BATCH-NEW-1",
+            medicine="Ibuprofen",
+            action="OVERRIDDEN",
+            destination="Branch C",
+            override_reason="New rationale",
+            user="new_user",
+            source_branch="Branch A",
+            quantity=30,
+            system_recommendation="TRANSFER",
+            db_path=legacy_db,
+            reason_code="REVISED_CLINICAL_DEMAND",
+        )
+        self.assertTrue(ok)
+
+        df_all = load_decisions(db_path=legacy_db)
+        new_row = df_all[df_all["batch_id"] == "BATCH-NEW-1"]
+        self.assertEqual(len(new_row), 1)
+        self.assertEqual(new_row.iloc[0]["reason_code"], "REVISED_CLINICAL_DEMAND")
+
+    def test_06_csv_and_log_output_includes_reason_code(self):
+        """CSV export and log_manager include reason_code in output."""
+        ok = save_decision(
+            batch_id="BATCH-CSV-1",
+            medicine="Amoxicillin",
+            action="OVERRIDDEN",
+            destination="Branch Delta",
+            override_reason="Local fridge servicing",
+            user="pharmacist_csv",
+            source_branch="Branch Alpha",
+            quantity=40,
+            system_recommendation="TRANSFER",
+            db_path=self.db_path,
+            csv_path=self.csv_path,
+            reason_code="COLD_CHAIN_MAINTENANCE",
+        )
+        self.assertTrue(ok)
+
+        # Check direct csv output
+        df_csv = pd.read_csv(self.csv_path)
+        self.assertIn("reason_code", df_csv.columns)
+        csv_matching = df_csv[df_csv["batch_id"] == "BATCH-CSV-1"]
+        self.assertEqual(len(csv_matching), 1)
+        self.assertEqual(csv_matching.iloc[0]["reason_code"], "COLD_CHAIN_MAINTENANCE")
+        self.assertEqual(csv_matching.iloc[0]["override_reason"], "Local fridge servicing")
+
+        # Check export_decisions_to_csv
+        exported_path = os.path.join(self.temp_dir, "export.csv")
+        export_decisions_to_csv(csv_path=exported_path, db_path=self.db_path)
+        df_exp = pd.read_csv(exported_path)
+        self.assertIn("reason_code", df_exp.columns)
+        exp_matching = df_exp[df_exp["batch_id"] == "BATCH-CSV-1"]
+        self.assertEqual(len(exp_matching), 1)
+        self.assertEqual(exp_matching.iloc[0]["reason_code"], "COLD_CHAIN_MAINTENANCE")
+
+    def test_07_existing_recommendation_and_persistence_behavior_remains_unchanged(self):
+        """Normal confirm transfers continue to record without reason_code requirement."""
+        ok = save_decision(
+            batch_id="BATCH-CONF-01",
+            medicine="Paracetamol",
+            action="CONFIRMED",
+            destination="Branch Beta",
+            user="pharmacist_normal",
+            source_branch="Branch Alpha",
+            quantity=100,
+            system_recommendation="TRANSFER",
+            db_path=self.db_path,
+        )
+        self.assertTrue(ok)
+        df = load_decisions(db_path=self.db_path)
+        matching = df[df["batch_id"] == "BATCH-CONF-01"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching.iloc[0]["action"], "CONFIRMED")
+        self.assertEqual(matching.iloc[0]["reason_code"], "")
+        self.assertEqual(matching.iloc[0]["override_reason"], "")

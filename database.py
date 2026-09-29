@@ -15,18 +15,19 @@ from constants import (
     DECISIONS_CSV,
     REQUIRED_STOCK_COLUMNS,
     DECISION_COLUMNS,
+    OVERRIDE_REASON_CODES,
 )
 
 # Re-export so existing imports from database continue to work.
 __all__ = [
     "DB_PATH", "MEDICINES_CSV", "BARCODES_CSV", "DECISIONS_CSV",
-    "REQUIRED_STOCK_COLUMNS", "DECISION_COLUMNS",
+    "REQUIRED_STOCK_COLUMNS", "DECISION_COLUMNS", "OVERRIDE_REASON_CODES",
     "get_connection", "initialise_database", "load_stock", "save_decision",
     "load_decisions", "import_stock_from_csv", "invalidate_stock_cache",
     "update_stock_quantity", "export_decisions_to_csv",
     "DatabaseLoadError", "get_last_stock_load_error",
     "DatabaseSaveError", "get_last_decision_save_error",
-    "atomic_update_barcode",
+    "atomic_update_barcode", "validate_override",
 ]
 
 
@@ -105,7 +106,8 @@ def initialise_database(db_path: Optional[str] = None, seed: bool = True) -> Non
             system_recommendation TEXT,
             action TEXT,
             final_decision TEXT,
-            override_reason TEXT
+            override_reason TEXT,
+            reason_code TEXT
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_decisions_batch ON decisions(batch_id)")
@@ -125,10 +127,15 @@ def initialise_database(db_path: Optional[str] = None, seed: bool = True) -> Non
         ("quantity", "INTEGER"),
         ("system_recommendation", "TEXT"),
         ("final_decision", "TEXT"),
+        ("override_reason", "TEXT"),
+        ("reason_code", "TEXT"),
     ]
     for col_name, col_type in migrations:
         if col_name not in existing_cols:
             cursor.execute(f"ALTER TABLE decisions ADD COLUMN {col_name} {col_type}")
+
+    # Create reason_code index after migration so it always exists on the column
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_decisions_reason_code ON decisions(reason_code)")
 
     conn.commit()
 
@@ -382,12 +389,30 @@ def get_last_decision_save_error() -> Optional[str]:
     return LAST_DECISION_SAVE_ERROR
 
 
+def validate_override(reason_code: str, override_reason: str) -> tuple[bool, str]:
+    """
+    Validate that a rejection/override includes both a valid categorical reason
+    code from OVERRIDE_REASON_CODES and a non-empty free-text clinical justification.
+
+    Returns (is_valid, error_message).
+    """
+    code = str(reason_code or "").strip().upper()
+    if not code:
+        return False, "A categorical reason code is required to override/reject a recommendation."
+    if code not in OVERRIDE_REASON_CODES:
+        return False, f"Invalid reason code '{reason_code}'. Must be one of: {list(OVERRIDE_REASON_CODES.keys())}"
+    text = str(override_reason or "").strip()
+    if not text:
+        return False, "A clinical justification is required to override/reject a recommendation."
+    return True, ""
+
+
 def save_decision(batch_id, medicine, action,
                   destination="", override_reason="",
                   user="pharmacist", source_branch="",
                   quantity=0, system_recommendation="",
                   final_decision="", db_path=None, csv_path=None,
-                  raise_on_error=False) -> bool:
+                  raise_on_error=False, reason_code="") -> bool:
     """
     Save an operational decision to SQLite (the sole authoritative audit log).
 
@@ -423,6 +448,8 @@ def save_decision(batch_id, medicine, action,
         If provided, the decision is also written to this CSV file (test isolation only).
     raise_on_error : bool, optional
         If True, raises DatabaseSaveError on failure instead of returning False.
+    reason_code : str, optional
+        Standardized machine-readable reason code from OVERRIDE_REASON_CODES.
 
     Returns
     -------
@@ -442,6 +469,18 @@ def save_decision(batch_id, medicine, action,
     else:
         final_decision = str(final_decision).strip().upper()
 
+    std_reason_code = str(reason_code).strip().upper() if reason_code else ""
+    if std_reason_code and std_reason_code not in OVERRIDE_REASON_CODES:
+        err_msg = (
+            f"Invalid reason_code '{reason_code}'. Must be one of: "
+            f"{list(OVERRIDE_REASON_CODES.keys())}"
+        )
+        LAST_DECISION_SAVE_ERROR = err_msg
+        logger.error(err_msg)
+        if raise_on_error:
+            raise DatabaseSaveError(err_msg)
+        return False
+
     try:
         qty_int = int(float(quantity))
     except (ValueError, TypeError):
@@ -459,12 +498,12 @@ def save_decision(batch_id, medicine, action,
                 INSERT INTO decisions
                 (timestamp, user, medicine, batch_id, source_branch,
                  destination, quantity, system_recommendation, action,
-                 final_decision, override_reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 final_decision, override_reason, reason_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 now_str, user, medicine, batch_id, source_branch,
                 destination, qty_int, system_recommendation, std_action,
-                final_decision, override_reason
+                final_decision, override_reason, std_reason_code
             ))
 
         # Only write to CSV if primary SQLite write succeeded (prevents inconsistent state)
@@ -482,6 +521,7 @@ def save_decision(batch_id, medicine, action,
                     "action":                std_action,
                     "final_decision":        final_decision,
                     "override_reason":       override_reason,
+                    "reason_code":           std_reason_code,
                 }
                 df_row = pd.DataFrame([new_row])
                 file_exists = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0

@@ -335,7 +335,8 @@ CREATE TABLE decisions (
     system_recommendation TEXT NOT NULL,
     action TEXT NOT NULL,
     final_decision TEXT NOT NULL,
-    override_reason TEXT
+    override_reason TEXT,
+    reason_code TEXT          -- controlled categorical code (OVERRIDE_REASON_CODES)
 );
 ```
 
@@ -409,14 +410,15 @@ The names below are fictional demonstration identities.
 
 Implemented in [`log_manager.py`](log_manager.py) and [`database.py`](database.py):
 
-Every recorded clinical decision creates an 11-field audit record:
+Every recorded clinical decision creates a 12-field audit record:
 
 ```
 [Timestamp] [User] [Medicine] [Batch ID] [Source Branch] [Destination Branch]
-[Quantity] [System Recommendation] [Action] [Final Decision] [Override Reason]
+[Quantity] [System Recommendation] [Action] [Final Decision] [Override Reason] [Reason Code]
 ```
 
-- **Mandatory Clinical Justification:** When a pharmacist overrides a system recommendation (`OVERRIDDEN`), the UI requires a clinical justification reason, which is committed to the audit log.
+- **Mandatory Clinical Justification:** When a pharmacist overrides a system recommendation (`OVERRIDDEN`), the UI requires **both** a controlled machine-readable reason code (selected from a standardized taxonomy) and a free-text clinical justification, both committed to the audit log.
+- **Controlled Reason Code Taxonomy:** Override reason codes are drawn from a centralized vocabulary defined in `constants.OVERRIDE_REASON_CODES`: `LOCAL_STOCK_BUFFER`, `STORAGE_UNAVAILABLE`, `REVISED_CLINICAL_DEMAND`, `COLD_CHAIN_MAINTENANCE`, `TRANSIT_RISK`, `OTHER`. Invalid codes are rejected at the persistence boundary. Existing records without a code (pre-migration) retain an empty `reason_code` field.
 - **Dual Persistence:** Decisions are written transactionally to the SQLite `decisions` table and synchronized to `data/decision_log.csv` for inspection and structured export.
 - **Credential Protection:** Secrets, passwords, session tokens, and password hashes are strictly excluded from logs, error messages, and audit tables.
 
