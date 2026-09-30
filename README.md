@@ -106,7 +106,7 @@ There is a need for an automated decision-support system that analyzes branch in
 | 12 | Secure user authentication using salted PBKDF2-HMAC-SHA256 with legacy migration support | ✅ COMPLETED |
 | 13 | Provide role-restricted administrative analytics with current network health and financial exposure metrics | ✅ COMPLETED |
 | 14 | Integrate a supporting Random Forest ML model to predict expiry risk without overriding safety rules | ✅ COMPLETED |
-| 15 | Verify implemented functionality through comprehensive automated tests (247 passing tests) | ✅ COMPLETED |
+| 15 | Verify implemented functionality through comprehensive automated tests (255 passing tests) | ✅ COMPLETED |
 
 ---
 
@@ -197,7 +197,6 @@ There is a need for an automated decision-support system that analyzes branch in
 ```
 
 > **Safety Architecture Rule:** Rule-based safety constraints take precedence over machine learning outputs. Machine learning outputs serve strictly as an advisory signal and cannot override the defined safety boundaries.
-
 ---
 
 ## 6. Technology Stack
@@ -212,7 +211,7 @@ There is a need for an automated decision-support system that analyzes branch in
 | **Authentication** | [hashlib](https://docs.python.org/3/library/hashlib.html) & [secrets](https://docs.python.org/3/library/secrets.html) | Python standard library | PBKDF2-HMAC-SHA256 (100k rounds, 128-bit salt, `hmac.compare_digest`) |
 | **Alerting** | [smtplib](https://docs.python.org/3/library/smtplib.html) | Python standard library | Automated SMTP notifications for critical near-expiry batches |
 | **Configuration** | [python-dotenv](https://pypi.org/project/python-dotenv/) | Standards-compliant | Environment variable configuration and Streamlit secrets management |
-| **Testing** | [pytest](https://pytest.org/) | Automated Suite | 247 deterministic unit, boundary, integration, and security tests |
+| **Testing** | [pytest](https://pytest.org/) | Automated Suite | 255 deterministic unit, boundary, integration, and security tests |
 
 ---
 
@@ -398,7 +397,6 @@ Existing installations or legacy test credentials with standard 64-character SHA
 In accordance with strict security standards, `_PLAINTEXT_HASH_CACHE` has been completely removed. Environment variables containing plaintext passwords (used in test/local setups) are hashed on demand via PBKDF2 and are never stored or cached in plaintext in memory.
 
 ### 10.4 Credential Resolution Hierarchy
-
 `auth_config.get_credentials()` checks credentials in priority order:
 1. **Streamlit Secrets** (`.streamlit/secrets.toml` under `[auth]`)
 2. **Environment Variable Hashes** (`*_PASSWORD_HASH`)
@@ -597,8 +595,7 @@ EMAIL_RECEIVER=pharmacist@pharmacy.com
 ## 16. Running the Application
 
 ### Launch Streamlit Interface
-```bash
-streamlit run app.py
+```bashstreamlit run app.py
 ```
 Access the application at [http://localhost:8501](http://localhost:8501).
 
@@ -618,7 +615,7 @@ Evaluates the Random Forest model on the dataset and writes metrics to `data/ml_
 
 ## 17. Testing & Verification (Actual Testing Results)
 
-The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](test_edge_cases.py). The suite has evolved from the initial foundational suite to **247 passing tests** covering functional boundaries, edge cases, and defined safety constraints across the project.
+The repository contains an automated, deterministic test suite in [`test_edge_cases.py`](test_edge_cases.py). The suite has evolved from the initial foundational suite to **255 passing tests** covering functional boundaries, edge cases, and defined safety constraints across the project.
 
 ### Run the Full Test Suite
 
@@ -635,10 +632,10 @@ pytest -q
 ........................................................................ [ 58%]
 ........................................................................ [ 87%]
 ...............................                                          [100%]
-247 passed in 18.79s
+255 passed in 18.79s
 ```
 
-### Test Suite Architecture (32 Test Classes, 247 Tests)
+### Test Suite Architecture (33 Test Classes, 255 Tests)
 
 | Test Class | Focus Area | Test Count |
 |------------|------------|:----------:|
@@ -674,7 +671,7 @@ pytest -q
 | `TestPhase13SaveDecisionAudit` | Transactional rollback and error surfacing on decision save failure | 5 |
 | `TestDecisionSaveFailureHandling` | Session state protection and error surfacing on decision save failure | 8 |
 | `TestMultiCriteriaDestinationRanking` | Formalized objective function: demand velocity, stock value, transit margin, zero-range safety, tie-breaking | 12 |
-| **Total Verified Tests** | **Deterministic, isolated unit and edge-case tests** | **247 Passed** |
+| **Total Verified Tests** | **Deterministic, isolated unit and edge-case tests** | **255 Passed** |
 
 ---
 
@@ -797,8 +794,7 @@ and treating all TRANSFER recommendations as acted upon:
    redistribution but reduces the total value of recommendations.
 
 3. **Synthetic data labels** — Ground-truth risk labels are derived
-   algorithmically from demand-absorption heuristics, not from real
-   clinical disposal records. Real-world accuracy requires validation
+   algorithmically from demand-absorption heuristics, not from real   clinical disposal records. Real-world accuracy requires validation
    against historical dispensing data from live pharmacy systems.
 
 4. **Single-node SQLite constraint** — SQLite is not designed for
@@ -891,5 +887,5 @@ Pharmacy-Expiry-Stock-Checker-and-Redistribution-Recommender/
 ├── README.md                       # Comprehensive system documentation (this file)
 ├── recommender.py                  # Deterministic scoring, need calculation, & allocation engine
 ├── requirements.txt                # Python package dependencies
-└── test_edge_cases.py              # Automated test suite (247 deterministic unit/boundary tests)
+└── test_edge_cases.py              # Automated test suite (255 deterministic unit/boundary tests)
 ```
